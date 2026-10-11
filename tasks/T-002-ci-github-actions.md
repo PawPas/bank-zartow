@@ -2,7 +2,7 @@
 id: T-002
 epic: E0
 title: CI na GitHub Actions
-status: todo
+status: done
 depends_on: [T-001]
 manual_review: true
 ---
