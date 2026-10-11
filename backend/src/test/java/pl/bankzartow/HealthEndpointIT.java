@@ -25,6 +25,6 @@ class HealthEndpointIT {
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
         assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(response.body()).contains("\"status\":\"DOWN\"");
+        assertThat(response.body()).contains("\"status\":\"UP\"");
     }
 }
