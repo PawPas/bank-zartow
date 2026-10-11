@@ -2,7 +2,7 @@
 id: T-001
 epic: E0
 title: Szkielet backendu i Makefile
-status: todo
+status: done
 depends_on: []
 manual_review: true
 ---
