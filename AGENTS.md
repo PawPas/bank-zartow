@@ -23,8 +23,9 @@ Ten plik czyta każdy agent przed rozpoczęciem pracy. Każda sesja startuje z c
 3. Zaimplementuj dokładnie zakres taska. Testy z sekcji „Testy” są częścią zadania.
 4. Uruchom `make test`. Czerwony wynik naprawiasz przed otwarciem PR.
 5. W tym samym PR ustaw w pliku taska `status: done`.
-6. Otwórz PR z tytułem `T-XXX: tytuł taska` i opisem: co zrobiono, jak sprawdzono, lista kryteriów akceptacji z odhaczeniem.
-7. Po uwagach z review popraw kod w tym samym branchu. Limit to 3 rundy poprawek, potem task dostaje `status: blocked`.
+6. Przed otwarciem PR i przed każdym pushem poprawek zrób rebase brancha na aktualny main.
+7. Otwórz PR z tytułem `T-XXX: tytuł taska` i opisem: co zrobiono, jak sprawdzono, lista kryteriów akceptacji z odhaczeniem.
+8. Po uwagach z review popraw kod w tym samym branchu. Limit to 3 rundy poprawek, potem task dostaje `status: blocked`.
 
 ## Rola: reviewer
 
