@@ -2,7 +2,7 @@
 id: T-003
 epic: E0
 title: Baza danych, Flyway i testy integracyjne
-status: todo
+status: done
 depends_on: [T-002]
 manual_review: true
 ---
