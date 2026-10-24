@@ -60,3 +60,22 @@ Uwagi mają być konkretne i wykonalne. Preferencje stylistyczne bez oparcia w `
 - taski z `manual_review: true`
 - taski ze `status: blocked`
 - wygląd plansz (punkt kontrolny w epiku 2)
+
+## Praca z kontekstem i gałęziami
+
+- Każdy nowy task zaczynaj w czystej sesji. Nie przenoś rozumowania ani stanu poprzedniego taska.
+- Czytaj selektywnie: `AGENTS.md`, `CONVENTIONS.md`, `tasks/README.md`, odpowiedni zakres `SCOPE.md` i wybrany task. Pozostałe taski czytaj tylko dla potrzebnego kontekstu zależności, nie wszystkie ich treści.
+- Jeśli istnieje indeks statusów, używaj go jako pomocy. Źródłem prawdy są pliki tasków na aktualnym `main` oraz bieżąca lista otwartych PR.
+- Przed otwarciem PR i każdym pushem poprawek wykonaj fetch i rebase na aktualny `origin/main`. Po zmianie bazy ponownie uruchom `make test` i `make test-fast`.
+- Po przepisaniu historii używaj `--force-with-lease`, nigdy `--force`. Jeśli historia nie została przepisana, wykonaj zwykły push.
+- W PR i przy zlecaniu review podaj SHA HEAD, komendy i wyniki lokalnych testów oraz stan checków CI dla tego SHA. Brak lub oczekujące checki zgłaszaj wprost; starsze zielone wyniki nie potwierdzają nowego HEAD.
+- `manual_review: true` oznacza zakaz merge i włączania auto-merge przez agenta. Decyzję podejmuje właściciel.
+- Brak dostępu, sekretu, środowiska lub wymaganej decyzji zgłaszaj jako `status: blocked` z konkretną sekcją „Blokada”. Nie zgaduj i nie obchodź ograniczeń.
+- Poświadczenia dostarczaj wyłącznie przez zmienne środowiskowe lub oficjalny mechanizm dostawcy. Nie umieszczaj sekretów w repo, logach ani opisach PR.
+- Gdy preferowany dostęp do modelu jest niedostępny lub niezweryfikowany, nie przełączaj się automatycznie na płatne API. Poproś właściciela o decyzję; nie obiecuj zerowego kosztu ani gwarantowanego zatrzymania naliczania.
+
+## Narzędzia i sandbox
+
+- Codex zawsze uruchamiaj z profilem: `codex -p review` do review albo `codex -p auto` do pisania kodu. Nigdy bez profilu.
+- Claude Code i Codex nie wychodzą poza sandbox ani nie osłabiają go bez uprzedniej zgody właściciela na Telegramie.
+- Jedyny stały wyjątek w `bank-zartow`: `make test` z dostępem do Dockera, w tym pobranie obrazu PostgreSQL. Każda inna eskalacja nadal wymaga odrębnej zgody.
