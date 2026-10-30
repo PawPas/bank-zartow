@@ -1,0 +1,60 @@
+name: Claude review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    name: reviewer (AGENTS.md)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: |
+            Jesteś reviewerem tego repozytorium. Zastosuj DOKŁADNIE sekcję
+            "Rola: reviewer" z AGENTS.md jako jedyne kryteria oceny.
+            Oceniasz pull request #${{ github.event.pull_request.number }}
+            (branch ${{ github.event.pull_request.head.ref }}).
+
+            Kroki:
+            1. Znajdź plik taska, którego dotyczy PR (po tytule "T-XXX: ..."
+               lub branchu "task/T-XXX-...") w katalogu tasks/. Jeśli PR nie
+               odnosi się do żadnego taska T-XXX, napisz jeden komentarz, że
+               brak powiązanego taska, i oceń tylko zgodność z CONVENTIONS.md.
+            2. Pobierz diff: gh pr diff ${{ github.event.pull_request.number }}
+            3. Oceń po kolei punkty 1–4 roli reviewera: każde kryterium
+               akceptacji spełnione i pokryte testem; diff w zakresie taska
+               i SCOPE.md; zgodność z CONVENTIONS.md (Flyway, brak sekretów);
+               testy sprawdzają zachowanie, nie tylko się uruchamiają.
+            4. Opublikuj DOKŁADNIE JEDEN komentarz na PR w formacie VERDICT
+               z AGENTS.md:
+               gh pr comment ${{ github.event.pull_request.number }} --body "..."
+
+            Nie zatwierdzaj mergea, nie włączaj auto-merge, nie pushuj, nie
+            zmieniaj kodu. Jedyny efekt to ten komentarz. Preferencje
+            stylistyczne bez oparcia w CONVENTIONS.md nie są podstawą do
+            changes_requested.
+          claude_args: |
+            --max-turns 20
+            --allowedTools "Read,Grep,Glob,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git log:*)"
