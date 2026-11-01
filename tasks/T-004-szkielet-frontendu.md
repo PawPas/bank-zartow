@@ -2,7 +2,7 @@
 id: T-004
 epic: E0
 title: Szkielet frontendu
-status: todo
+status: done
 depends_on: [T-002]
 manual_review: true
 ---
