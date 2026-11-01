@@ -19,6 +19,9 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- Built React frontend copied into the jar as static resources. The
+             Makefile and the Dockerfile build the frontend before packaging. -->
+        <frontend.dist.dir>${project.basedir}/../frontend/dist</frontend.dist.dir>
     </properties>
 
     <dependencies>
@@ -80,6 +83,32 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+            </plugin>
+            <!-- Copies the built frontend into the application's static resources so
+                 Spring Boot serves the single-page app. Bound before test-compile so it
+                 is present for `spring-boot:run`, the integration tests, and `package`.
+                 If the frontend has not been built yet the source is skipped with a
+                 warning (unit tests do not need it). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>copy-frontend</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${frontend.dist.dir}</directory>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

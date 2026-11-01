@@ -1,0 +1,10 @@
+# Keep the build context small and never ship local artefacts or secrets.
+**/node_modules
+**/dist
+**/target
+**/*.tsbuildinfo
+.git
+.env
+.idea
+.vscode
+*.log
