@@ -24,7 +24,7 @@ import org.springframework.context.annotation.Import;
 @Import(TestcontainersConfiguration.class)
 class StaticContentIT {
 
-    private static final Pattern ASSET = Pattern.compile("(?:src|href)=\"(/assets/[^\"]+)\"");
+    private static final Pattern JS_ASSET = Pattern.compile("src=\"(/assets/[^\"]+\\.js)\"");
 
     @LocalServerPort
     private int port;
@@ -45,17 +45,25 @@ class StaticContentIT {
     }
 
     @Test
-    void servesHashedAssetReferencedByStartPage() throws Exception {
+    void servesHashedJsAssetAsJavaScriptNotHtmlFallback() throws Exception {
         String indexHtml = get("/").body();
-        Matcher matcher = ASSET.matcher(indexHtml);
+        Matcher matcher = JS_ASSET.matcher(indexHtml);
         assertThat(matcher.find())
-                .as("start page references a built /assets/ file")
+                .as("start page references a built /assets/*.js file")
                 .isTrue();
 
         HttpResponse<String> asset = get(matcher.group(1));
 
         assertThat(asset.statusCode()).isEqualTo(200);
-        assertThat(asset.body()).isNotEmpty();
+        // A missing asset would be answered with the index.html SPA fallback (200,
+        // text/html). Asserting the JavaScript content type and the absence of the
+        // HTML root element makes that fallback fail this test.
+        assertThat(asset.headers().firstValue("Content-Type").orElse(""))
+                .as("JS asset must be served with a JavaScript content type")
+                .containsPattern("(?i)javascript");
+        assertThat(asset.body())
+                .as("asset body must be the real file, not the index.html fallback")
+                .doesNotContain("<div id=\"root\"");
     }
 
     @Test
@@ -71,6 +79,15 @@ class StaticContentIT {
         HttpResponse<String> response = get("/api/nie-istnieje");
 
         assertThat(response.statusCode()).isEqualTo(404);
+        assertThat(response.body()).doesNotContain("<div id=\"root\"");
+    }
+
+    @Test
+    void exactApiPathReturns404NotSpaFallback() throws Exception {
+        HttpResponse<String> response = get("/api");
+
+        assertThat(response.statusCode()).isEqualTo(404);
+        assertThat(response.body()).doesNotContain("<div id=\"root\"");
     }
 
     private HttpResponse<String> get(String path) throws Exception {

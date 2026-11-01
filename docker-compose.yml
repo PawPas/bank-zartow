@@ -1,6 +1,8 @@
-# Local PostgreSQL for development. Tests do not use this file: integration
-# tests spin up their own throwaway database with Testcontainers.
-# Values are read from the local .env (see .env.example); nothing is committed.
+# Single-service production run: the app image (built from the Dockerfile) plus
+# PostgreSQL. `make run` only needs Docker — the frontend and backend are built
+# inside the image, not on the host. Values are read from the local .env (see
+# .env.example); nothing is committed. Integration tests do not use this file:
+# they spin up their own throwaway database with Testcontainers.
 services:
   postgres:
     image: postgres:16-alpine
@@ -12,6 +14,26 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    environment:
+      # The container always listens on 8080; the host port is mapped below.
+      PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JAVA_OPTS: ${JAVA_OPTS:--XX:MaxRAMPercentage=75.0}
+    ports:
+      - "${PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   postgres-data:

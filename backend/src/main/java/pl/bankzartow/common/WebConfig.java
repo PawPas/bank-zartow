@@ -42,7 +42,7 @@ public class WebConfig implements WebMvcConfigurer {
             if (requested.exists() && requested.isReadable()) {
                 return requested;
             }
-            if (resourcePath.startsWith("api/")) {
+            if (resourcePath.equals("api") || resourcePath.startsWith("api/")) {
                 return null;
             }
             return INDEX.exists() ? INDEX : null;
