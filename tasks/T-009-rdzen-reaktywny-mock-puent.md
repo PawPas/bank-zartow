@@ -2,7 +2,7 @@
 id: T-009
 epic: E-RX
 title: Reaktywny rdzeń propozycji puent z implementacją mock
-status: todo
+status: done
 depends_on: []
 manual_review: true
 ---

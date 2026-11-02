@@ -33,6 +33,14 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <!-- Reactor types (Mono/Flux) for the reactive alternate-endings core.
+             The application stays on Spring MVC; only the reactive types are used
+             here, so no WebFlux server and no R2DBC. Version is managed by the
+             Spring Boot BOM (reactor-bom). -->
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-core</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
@@ -58,6 +66,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- StepVerifier (incl. virtual-time support) for the reactive core tests. -->
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
