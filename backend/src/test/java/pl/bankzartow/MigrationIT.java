@@ -7,6 +7,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import pl.bankzartow.auth.AuthTestFixtures;
 import pl.bankzartow.common.ApplicationInfo;
 import pl.bankzartow.common.ApplicationInfoRepository;
 
@@ -23,6 +26,11 @@ class MigrationIT {
 
     @Autowired
     private ApplicationInfoRepository applicationInfoRepository;
+
+    @DynamicPropertySource
+    static void credentials(DynamicPropertyRegistry registry) {
+        AuthTestFixtures.registerCredentials(registry);
+    }
 
     @Test
     void flywayAppliedInitialMigrationOnEmptyDatabase() {

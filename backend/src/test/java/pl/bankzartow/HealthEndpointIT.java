@@ -11,6 +11,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import pl.bankzartow.auth.AuthTestFixtures;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -20,6 +23,11 @@ class HealthEndpointIT {
 
     @LocalServerPort
     private int port;
+
+    @DynamicPropertySource
+    static void credentials(DynamicPropertyRegistry registry) {
+        AuthTestFixtures.registerCredentials(registry);
+    }
 
     @Test
     void healthEndpointReportsUp() throws Exception {

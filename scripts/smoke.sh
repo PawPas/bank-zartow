@@ -27,12 +27,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Throwaway single-account credentials so the app (which refuses to start without
+# login credentials) can boot. The password is never used here; the smoke test
+# only exercises public endpoints. Single-quoted so the bcrypt '$' is literal.
+SMOKE_AUTH_USER='smoke'
+SMOKE_AUTH_HASH='$2y$10$WgarHsLpHd31YbMB/64l.OitMiIH8mvoTyKpRXvK4Wem030VJd8Iq'
+
 cat > "$ENV_FILE" <<EOF
 POSTGRES_DB=bankdb
 POSTGRES_USER=bankuser
 POSTGRES_PASSWORD=smoke_ephemeral_pw
 POSTGRES_PORT=15499
 PORT=$HOST_PORT
+APP_AUTH_USERNAME=$SMOKE_AUTH_USER
+APP_AUTH_PASSWORD_HASH=$SMOKE_AUTH_HASH
+APP_SESSION_COOKIE_SECURE=false
 JAVA_OPTS=-XX:MaxRAMPercentage=75.0
 EOF
 
@@ -63,10 +72,12 @@ case "$home" in
   *) echo "[smoke] FAIL: start page did not contain the app root element"; exit 1 ;;
 esac
 
-echo "[smoke] checking /api does not receive the SPA HTML fallback"
-code="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$HOST_PORT/api")"
-[ "$code" = "404" ] || { echo "[smoke] FAIL: /api returned $code, expected 404"; exit 1; }
-echo "[smoke] /api -> 404"
+echo "[smoke] checking /api requires a session and is not served the SPA fallback"
+api_body="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$HOST_PORT/api")"
+# With login enabled, an unauthenticated /api request is rejected with 401 before
+# routing, so it never receives the index.html SPA fallback.
+[ "$api_body" = "401" ] || { echo "[smoke] FAIL: /api returned $api_body, expected 401"; exit 1; }
+echo "[smoke] /api -> 401 (unauthenticated)"
 
 echo "[smoke] inspecting the final image for sources and build tools"
 image="$("${COMPOSE[@]}" images -q app)"

@@ -2,7 +2,7 @@
 id: T-006
 epic: E0
 title: Logowanie jednego użytkownika
-status: todo
+status: done
 depends_on: [T-005]
 manual_review: true
 ---
