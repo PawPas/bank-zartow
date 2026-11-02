@@ -7,6 +7,10 @@ vi.mock("./api/client.ts", () => ({
   fetchSession: vi.fn(),
   logout: vi.fn(),
   login: vi.fn(),
+  // The authenticated screen renders JokeList, which loads jokes on mount.
+  // Default to an empty list so these App-level tests stay focused on auth.
+  fetchJokes: vi.fn().mockResolvedValue([]),
+  createJoke: vi.fn(),
   InvalidCredentialsError: class extends Error {},
 }));
 

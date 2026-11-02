@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { fetchSession, logout } from "./api/client.ts";
 import LoginScreen from "./auth/LoginScreen.tsx";
+import JokeList from "./joke/JokeList.tsx";
 
 type AuthState =
   | { status: "loading" }
@@ -72,7 +73,7 @@ export default function App() {
           {logoutError}
         </p>
       )}
-      <p>Narzędzie do zapisywania żartów i przygotowywania postów.</p>
+      <JokeList />
     </main>
   );
 }

@@ -10,6 +10,14 @@ export interface SessionInfo {
   username: string | null;
 }
 
+/** A joke as returned by the backend. The shape grows in later tasks. */
+export interface Joke {
+  id: number;
+  content: string;
+  createdAt: string;
+  version: number;
+}
+
 // In production the frontend is served by Spring Boot from the same origin, so
 // an empty base means "same host". Overridable for local development via Vite.
 const baseUrl: string = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -86,6 +94,40 @@ export async function login(username: string, password: string): Promise<void> {
   if (!response.ok) {
     throw new Error(`Login failed with status ${response.status}`);
   }
+}
+
+/** Loads all jokes, newest first (the backend decides the order). */
+export async function fetchJokes(): Promise<Joke[]> {
+  const response = await fetch(`${baseUrl}/api/jokes`, {
+    credentials: "include",
+  });
+  if (response.status === 401) {
+    throw new UnauthorizedError();
+  }
+  if (!response.ok) {
+    throw new Error(`Fetching jokes failed with status ${response.status}`);
+  }
+  return (await response.json()) as Joke[];
+}
+
+/** Creates a joke from its content and returns the created joke. */
+export async function createJoke(content: string): Promise<Joke> {
+  const response = await fetch(`${baseUrl}/api/jokes`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...csrfHeaders(),
+    },
+    body: JSON.stringify({ content }),
+  });
+  if (response.status === 401) {
+    throw new UnauthorizedError();
+  }
+  if (!response.ok) {
+    throw new Error(`Creating a joke failed with status ${response.status}`);
+  }
+  return (await response.json()) as Joke;
 }
 
 export async function logout(): Promise<void> {
