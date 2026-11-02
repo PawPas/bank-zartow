@@ -2,7 +2,7 @@
 id: T-005
 epic: E0
 title: Jedna usługa, `make run` i Dockerfile
-status: todo
+status: done
 depends_on: [T-003, T-004]
 manual_review: true
 ---
@@ -29,3 +29,4 @@ Całość uruchamia się jedną komendą lokalnie i buduje do jednego obrazu pro
 - test integracyjny: strona startowa i zasoby statyczne są serwowane przez backend
 
 ## Blokada
+Brak.
