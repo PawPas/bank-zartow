@@ -1,7 +1,7 @@
 # SCOPE: Bank żartów (pilot)
 
 Status: **do zatwierdzenia** (bramka 1)
-Wersja: 0.3, 2026-10-06
+Wersja: 0.4, 2026-11-02 (dodano epik E-RX jako rozszerzenie E2, autoryzowane przez właściciela)
 
 ## 1. Cel
 
@@ -90,6 +90,30 @@ Kryteria akceptacji:
 - ranking liczy udostępnienia / zasięg × 1000 i pomija posty bez wpisanego zasięgu
 - ranking dostępny per żart i per tag
 
+### Epik E-RX: Reaktywne propozycje puent (rozszerzenie E2)
+
+Rozszerzenie funkcji AI z epiku 2 („zaproponuj 3 inne puenty”): propozycje puent są strumieniowane do edytora na żywo. Epik jest też ćwiczeniem stosu reaktywnego na zamkniętym fragmencie.
+
+Zakres:
+- aplikacja pozostaje w modelu Spring MVC; reaktywne są wyłącznie: orkiestracja generowania (Reactor `Mono`/`Flux`), klient HTTP do dostawcy (`WebClient`) i strumieniowanie do przeglądarki (SSE)
+- niezależny od dostawcy port generowania propozycji oraz implementacja mock, na której działają testy i tryb lokalny bez realnego dostawcy
+- endpoint SSE strumieniujący kolejne propozycje; UI edytora pokazuje je stopniowo i pozwala ręcznie zapisać wybrane jako alternatywne puenty
+- reguły: limit liczby i długości propozycji, timeout, anulowanie przy rozłączeniu, zgłaszanie błędów; wyczerpanie limitu lub błąd kończy strumień błędem
+- dostawca AI pozostaje do wskazania (patrz D3); przed podłączeniem realnego dostawcy wymagany jest spike techniczno-prawny i decyzja go/no-go
+
+Poza zakresem:
+- migracja całego serwera na WebFlux oraz dostęp do bazy przez R2DBC (utrwalanie pozostaje na JPA)
+- automatyczne przełączanie na płatną ścieżkę lub innego dostawcę przy błędzie albo wyczerpaniu limitu
+- nadpisywanie oryginalnej lub wybranej puenty; propozycje zapisuje wyłącznie użytkownik ręcznie
+- zakładanie bez potwierdzenia, że dana subskrypcja, SDK lub hostowany dostęp dostawcy są dopuszczalne; rozstrzyga to spike, domyślnie fail-closed
+
+Kryteria akceptacji:
+- propozycje docierają do edytora stopniowo przez SSE, a nie dopiero po zakończeniu generowania
+- rozłączenie klienta anuluje generowanie; timeout i błąd są zgłaszane, nie przemilczane
+- oryginalna i wybrana puenta pozostają nienaruszone; zapis propozycji następuje tylko na decyzję użytkownika
+- testy obejmują anulowanie, timeout, limity i błędy, a ścieżka testowa jest niezależna od realnego dostawcy (mock/zaślepka)
+- realny adapter dostawcy powstaje dopiero po rekomendacji `go` ze spike'u i osobnym zatwierdzeniu właściciela; brak automatycznego fallbacku na płatne API
+
 ## 5. Poza zakresem
 
 - wielu użytkowników, role, rejestracja
@@ -102,6 +126,8 @@ Kryteria akceptacji:
 ## 6. Kolejność
 
 Epik 0 → 1 → 2 → 3. Po epikach 1 i 2 narzędzie jest już użyteczne, epik 3 domyka obieg od pomysłu do oceny publikacji.
+
+Epik E-RX rozszerza E2 i wchodzi dopiero po nim. Wyjątkiem są dwa taski, które są niezależne od dostawcy i od modelu danych i mogą ruszyć wcześniej, równolegle do bieżących prac: spike techniczno-prawny (go/no-go) oraz reaktywny rdzeń na implementacji mock. Pozostałe taski E-RX czekają na brakujące przesłanki: endpoint na model żartu z E1, UI na edytor z E2, a realny adapter na decyzję `go` i zgodę właściciela. Dopisanie tych tasków nie autoryzuje rozpoczęcia implementacji E1 ani E2 — kolejność epików pozostaje bez zmian. Spike nie zależy od działającego wdrożenia na Railway.
 
 ## 7. Decyzje do podjęcia przy zatwierdzeniu
 
