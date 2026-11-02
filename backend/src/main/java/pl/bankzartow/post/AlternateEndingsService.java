@@ -66,7 +66,10 @@ public class AlternateEndingsService {
     public Flux<AlternateEnding> generate(AlternateEndingsRequest request) {
         Objects.requireNonNull(request, "request");
 
-        Flux<AlternateEnding> ruled = source.generate(request)
+        // defer so that even a synchronous throw from source.generate (not just an
+        // errored Flux) happens inside the reactive chain at subscription time and
+        // is mapped to a domain error, instead of escaping this method directly.
+        Flux<AlternateEnding> ruled = Flux.defer(() -> source.generate(request))
                 // Map only source-origin errors; our own domain errors (added by
                 // the rules below) are introduced after this operator and keep
                 // their type. No fallback to another source.

@@ -37,22 +37,4 @@ class MockAlternateEndingsGeneratorTest {
         assertThat(mock.emittedCount()).isEqualTo(3);
         assertThat(mock.cancelled()).isFalse();
     }
-
-    @Test
-    void cancellationStopsFurtherGeneration() {
-        // Take the first proposal, then cancel before the second one's delay
-        // elapses. The source must stop: the cancel hook fires and no further
-        // proposal is produced (emitted count stays at one), proving the source
-        // itself halts rather than a downstream operator merely ignoring signals.
-        MockAlternateEndingsGenerator mock = new MockAlternateEndingsGenerator(3, INTERVAL);
-
-        StepVerifier.withVirtualTime(() -> mock.generate(REQUEST))
-                .thenAwait(INTERVAL)
-                .expectNext(ending(1))
-                .thenCancel()
-                .verify();
-
-        assertThat(mock.cancelled()).isTrue();
-        assertThat(mock.emittedCount()).isEqualTo(1);
-    }
 }

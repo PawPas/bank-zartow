@@ -5,9 +5,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
+import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
+import reactor.test.scheduler.VirtualTimeScheduler;
 
 /**
  * Unit tests for the provider-neutral generation rules. Sources are plain
@@ -157,6 +161,26 @@ class AlternateEndingsServiceTest {
     }
 
     @Test
+    void mapsSynchronousSourceThrowToDomainErrorWithPreservedCause() {
+        // The port throws directly from generate() instead of returning an errored
+        // Flux. Thanks to Flux.defer this still ends the stream with the domain
+        // error (cause preserved) rather than throwing out of service.generate.
+        IllegalStateException cause = new IllegalStateException("provider misconfigured");
+        AlternateEndingsService service = service(
+                request -> {
+                    throw cause;
+                },
+                5, 100, Duration.ofSeconds(10));
+
+        StepVerifier.create(service.generate(REQUEST))
+                .consumeErrorWith(error -> {
+                    assertThat(error).isInstanceOf(AlternateEndingsException.SourceFailed.class);
+                    assertThat(error.getCause()).isSameAs(cause);
+                })
+                .verify();
+    }
+
+    @Test
     void mapsDeferredSourceErrorToDomainErrorWithoutFallback() {
         // The source emits one proposal, then fails. The already-emitted proposal
         // is kept, the failure is mapped to the domain error, and crucially no
@@ -170,6 +194,41 @@ class AlternateEndingsServiceTest {
                 .expectNext(ending("a"))
                 .expectError(AlternateEndingsException.SourceFailed.class)
                 .verify();
+    }
+
+    @Test
+    void cancellingSubscriptionStopsSourceGenerationThroughService() {
+        // Cancellation must propagate through the core down to the source and stop
+        // further work. A manually controlled virtual clock stays active after the
+        // cancel so we can advance past later scheduled emissions and prove the
+        // source produced nothing more (its scheduled delay task was disposed),
+        // not merely that a downstream operator ignored late signals.
+        VirtualTimeScheduler scheduler = VirtualTimeScheduler.getOrSet();
+        try {
+            Duration interval = Duration.ofMillis(150);
+            MockAlternateEndingsGenerator mock = new MockAlternateEndingsGenerator(3, interval);
+            AlternateEndingsService service = service(mock, 5, 280, Duration.ofSeconds(10));
+
+            List<AlternateEnding> received = new CopyOnWriteArrayList<>();
+            Disposable subscription = service.generate(REQUEST).subscribe(received::add);
+
+            // First proposal is produced after one interval.
+            scheduler.advanceTimeBy(interval);
+            assertThat(received).hasSize(1);
+            assertThat(mock.emittedCount()).isEqualTo(1);
+
+            // Cancel through the core; the source observes the cancellation.
+            subscription.dispose();
+            assertThat(mock.cancelled()).isTrue();
+
+            // Clock still active: move well past the next scheduled emissions
+            // (at 300ms and 450ms). Nothing more is produced.
+            scheduler.advanceTimeBy(interval.multipliedBy(5));
+            assertThat(received).hasSize(1);
+            assertThat(mock.emittedCount()).isEqualTo(1);
+        } finally {
+            VirtualTimeScheduler.reset();
+        }
     }
 
     @Test
