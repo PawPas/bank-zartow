@@ -33,6 +33,12 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
+        <!-- Bean Validation (CONVENTIONS.md): @Valid request bodies with
+             @NotBlank/@Size. The web starter no longer pulls this in. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
         <!-- Reactor types (Mono/Flux) for the reactive alternate-endings core.
              The application stays on Spring MVC; only the reactive types are used
              here, so no WebFlux server and no R2DBC. Version is managed by the
