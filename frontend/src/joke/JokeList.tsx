@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   createJoke,
   fetchJokes,
@@ -25,6 +25,19 @@ export default function JokeList({ draft, onDraftChange, onSessionExpired }: Jok
   const [loadFailed, setLoadFailed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+
+  // Guards the async add below: once this instance unmounts (e.g. App showed the
+  // login screen on an expired session, or the user logged out and back in), a
+  // late POST response must not touch App state. onSessionExpired and onDraftChange
+  // are stable across sessions, so without this a stale response from a previous
+  // session would re-show login or wipe the new draft.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -70,10 +83,24 @@ export default function JokeList({ draft, onDraftChange, onSessionExpired }: Jok
     setSubmitting(true);
     try {
       const created = await createJoke(draft);
-      // Prepend so the newest joke stays on top, matching the backend order.
-      setJokes((current) => [created, ...(current ?? [])]);
+      if (!mounted.current) {
+        return;
+      }
+      // Prepend so the newest joke stays on top, matching the backend order. Dedup
+      // by id: if a concurrent GET already brought this joke in, don't add a second
+      // row with the same id.
+      setJokes((current) => {
+        const existing = current ?? [];
+        if (existing.some((joke) => joke.id === created.id)) {
+          return existing;
+        }
+        return [created, ...existing];
+      });
       onDraftChange("");
     } catch (cause) {
+      if (!mounted.current) {
+        return;
+      }
       if (cause instanceof UnauthorizedError) {
         // Session expired: hand off to App to show the login screen. Keep the typed
         // draft (App preserves it across re-auth) and show no inline error here.
@@ -82,7 +109,9 @@ export default function JokeList({ draft, onDraftChange, onSessionExpired }: Jok
       }
       setAddError("Nie udało się dodać żartu. Spróbuj ponownie.");
     } finally {
-      setSubmitting(false);
+      if (mounted.current) {
+        setSubmitting(false);
+      }
     }
   }
 

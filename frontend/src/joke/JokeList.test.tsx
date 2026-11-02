@@ -123,6 +123,38 @@ describe("JokeList", () => {
     expect(items).toEqual(["Nowy żart", "Stary żart"]);
   });
 
+  it("does not duplicate the joke when the initial GET already returned it", async () => {
+    // Reverse order of the previous test: the GET resolves first and already
+    // contains the just-saved joke (same id 5); the POST response arrives after.
+    // Without dedup on the POST path this would render two rows with id 5.
+    let resolveCreate!: (created: Joke) => void;
+    createJokeMock.mockReturnValue(
+      new Promise<Joke>((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+    fetchJokesMock.mockResolvedValue([joke(5, "Nowy żart")]);
+
+    renderJokeList();
+    // The GET has resolved: the joke is listed exactly once.
+    expect(await screen.findByText("Nowy żart")).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+
+    fireEvent.change(screen.getByLabelText("Treść żartu"), {
+      target: { value: "Nowy żart" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj" }));
+
+    // The POST response (same id 5) arrives after the GET already included it.
+    resolveCreate(joke(5, "Nowy żart"));
+
+    // The add succeeded (draft cleared), and there is still exactly one row.
+    await waitFor(() =>
+      expect(screen.getByLabelText("Treść żartu")).toHaveValue(""),
+    );
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  });
+
   it("shows an error and keeps the typed content when adding fails (non-auth error)", async () => {
     createJokeMock.mockRejectedValue(new Error("boom"));
     renderJokeList();

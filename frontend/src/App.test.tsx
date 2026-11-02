@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.tsx";
 import {
@@ -27,6 +27,25 @@ const logoutMock = vi.mocked(logout);
 const loginMock = vi.mocked(login);
 const fetchJokesMock = vi.mocked(fetchJokes);
 const createJokeMock = vi.mocked(createJoke);
+
+/** A promise whose resolve/reject are exposed, to control response ordering. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function logOutThenBackIn() {
+  fireEvent.click(screen.getByRole("button", { name: "Wyloguj się" }));
+  await screen.findByRole("form", { name: "Logowanie" });
+  fireEvent.change(screen.getByLabelText("Login"), { target: { value: "ja" } });
+  fireEvent.change(screen.getByLabelText("Hasło"), { target: { value: "x" } });
+  fireEvent.click(screen.getByRole("button", { name: "Zaloguj się" }));
+}
 
 describe("App", () => {
   beforeEach(() => {
@@ -184,5 +203,69 @@ describe("App", () => {
     // Retry the add — it now succeeds.
     fireEvent.click(screen.getByRole("button", { name: "Dodaj" }));
     expect(await screen.findByText("Mój żart")).toBeInTheDocument();
+  });
+
+  it("ignores a late old-POST success after logout and re-login (keeps the new session's draft)", async () => {
+    const pending = deferred<{ id: number; content: string; createdAt: string; version: number }>();
+    fetchSessionMock
+      .mockResolvedValueOnce({ authenticated: true, username: "ja" }) // mount A
+      .mockResolvedValueOnce({ authenticated: false, username: null }) // after logout
+      .mockResolvedValue({ authenticated: true, username: "ja" }); // after re-login
+    fetchJokesMock.mockResolvedValue([]);
+    // The first (old-session) POST never resolves until we release it below.
+    createJokeMock.mockReturnValueOnce(pending.promise);
+    logoutMock.mockResolvedValue();
+    loginMock.mockResolvedValue();
+
+    render(<App />);
+    const fieldA = await screen.findByLabelText("Treść żartu");
+    fireEvent.change(fieldA, { target: { value: "szkic A" } });
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj" })); // POST pending in instance A
+
+    await logOutThenBackIn();
+    const fieldB = await screen.findByLabelText("Treść żartu");
+    fireEvent.change(fieldB, { target: { value: "szkic B" } }); // new session's draft
+
+    // The old POST finally succeeds — it must be ignored by the unmounted instance.
+    await act(async () => {
+      pending.resolve({ id: 9, content: "Spóźniony żart", createdAt: "2026-11-02T10:00:00Z", version: 0 });
+      await Promise.resolve();
+    });
+
+    // Still authenticated, the new draft is intact, and the stale joke was not added.
+    expect(screen.getByRole("button", { name: "Wyloguj się" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Treść żartu")).toHaveValue("szkic B");
+    expect(screen.queryByText("Spóźniony żart")).not.toBeInTheDocument();
+  });
+
+  it("ignores a late old-POST 401 after logout and re-login (does not re-show login)", async () => {
+    const pending = deferred<never>();
+    fetchSessionMock
+      .mockResolvedValueOnce({ authenticated: true, username: "ja" }) // mount A
+      .mockResolvedValueOnce({ authenticated: false, username: null }) // after logout
+      .mockResolvedValue({ authenticated: true, username: "ja" }); // after re-login
+    fetchJokesMock.mockResolvedValue([]);
+    createJokeMock.mockReturnValueOnce(pending.promise);
+    logoutMock.mockResolvedValue();
+    loginMock.mockResolvedValue();
+
+    render(<App />);
+    const fieldA = await screen.findByLabelText("Treść żartu");
+    fireEvent.change(fieldA, { target: { value: "szkic A" } });
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj" }));
+
+    await logOutThenBackIn();
+    const fieldB = await screen.findByLabelText("Treść żartu");
+    fireEvent.change(fieldB, { target: { value: "szkic B" } });
+
+    // The old POST finally fails with 401 — it must NOT drag the new session to login.
+    await act(async () => {
+      pending.reject(new UnauthorizedError());
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("button", { name: "Wyloguj się" })).toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: "Logowanie" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Treść żartu")).toHaveValue("szkic B");
   });
 });
