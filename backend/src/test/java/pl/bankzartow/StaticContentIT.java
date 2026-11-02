@@ -13,12 +13,20 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import pl.bankzartow.auth.AuthTestFixtures;
 
 /**
  * Verifies that the backend serves the built React frontend: the start page, its
  * hashed assets, and the single-page-app fallback that keeps a reloaded client
- * route from returning 404. Requires the frontend to have been built into the
- * static resources (the Makefile and Dockerfile do this before packaging).
+ * route from returning 404. The frontend shell is public so the login screen can
+ * load without a session. Requires the frontend to have been built into the static
+ * resources (the Makefile and Dockerfile do this before packaging).
+ *
+ * <p>The behaviour of {@code /api} paths under security (401 without a session,
+ * 404 when authenticated, never the SPA HTML fallback) is covered by
+ * {@link pl.bankzartow.auth.AuthIT}.
  */
 @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
 @Import(TestcontainersConfiguration.class)
@@ -28,6 +36,11 @@ class StaticContentIT {
 
     @LocalServerPort
     private int port;
+
+    @DynamicPropertySource
+    static void credentials(DynamicPropertyRegistry registry) {
+        AuthTestFixtures.registerCredentials(registry);
+    }
 
     private final HttpClient client =
             HttpClient.newBuilder().proxy(HttpClient.Builder.NO_PROXY).build();
@@ -72,22 +85,6 @@ class StaticContentIT {
 
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body()).contains("<div id=\"root\"");
-    }
-
-    @Test
-    void unknownApiPathStillReturns404() throws Exception {
-        HttpResponse<String> response = get("/api/nie-istnieje");
-
-        assertThat(response.statusCode()).isEqualTo(404);
-        assertThat(response.body()).doesNotContain("<div id=\"root\"");
-    }
-
-    @Test
-    void exactApiPathReturns404NotSpaFallback() throws Exception {
-        HttpResponse<String> response = get("/api");
-
-        assertThat(response.statusCode()).isEqualTo(404);
-        assertThat(response.body()).doesNotContain("<div id=\"root\"");
     }
 
     private HttpResponse<String> get(String path) throws Exception {

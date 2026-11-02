@@ -15,6 +15,41 @@
   color: #444;
 }
 
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.app-header h1 {
+  margin: 0;
+}
+
+/* Login form, stacked for a narrow phone screen. */
+.login {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.login input {
+  padding: 0.5rem;
+  font-size: 1rem;
+}
+
+.login button {
+  margin-top: 0.5rem;
+  padding: 0.6rem;
+  font-size: 1rem;
+}
+
+.login-error {
+  color: #b00020;
+}
+
 @media (min-width: 768px) {
   .app {
     max-width: 600px;

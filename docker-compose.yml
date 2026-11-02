@@ -28,6 +28,11 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      # Single-account login. No defaults: the app will not start without these.
+      APP_AUTH_USERNAME: ${APP_AUTH_USERNAME}
+      APP_AUTH_PASSWORD_HASH: ${APP_AUTH_PASSWORD_HASH}
+      # Local run is plain HTTP, so the Secure cookie flag stays off by default.
+      APP_SESSION_COOKIE_SECURE: ${APP_SESSION_COOKIE_SECURE:-false}
       JAVA_OPTS: ${JAVA_OPTS:--XX:MaxRAMPercentage=75.0}
     ports:
       - "${PORT:-8080}:8080"

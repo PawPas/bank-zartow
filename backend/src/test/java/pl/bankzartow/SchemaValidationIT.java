@@ -30,6 +30,10 @@ class SchemaValidationIT {
                         "spring.datasource.url=" + POSTGRES.getJdbcUrl(),
                         "spring.datasource.username=" + POSTGRES.getUsername(),
                         "spring.datasource.password=" + POSTGRES.getPassword(),
+                        // Credentials are present so startup fails on the schema, not on
+                        // the (separately tested) missing-credentials guard.
+                        "app.auth.username=tester",
+                        "app.auth.password-hash={bcrypt}$2b$10$abcdefghijklmnopqrstuv",
                         "spring.flyway.enabled=false",
                         "spring.main.web-application-type=none");
 
