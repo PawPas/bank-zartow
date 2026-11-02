@@ -135,4 +135,10 @@ describe("createJoke", () => {
 
     await expect(createJoke("")).rejects.toThrow("400");
   });
+
+  it("throws UnauthorizedError on a 401 so the UI can show the login screen", async () => {
+    mockFetchResponse({ ok: false, status: 401 });
+
+    await expect(createJoke("x")).rejects.toBeInstanceOf(UnauthorizedError);
+  });
 });

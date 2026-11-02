@@ -1,7 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.tsx";
-import { fetchSession, login, logout } from "./api/client.ts";
+import {
+  createJoke,
+  fetchJokes,
+  fetchSession,
+  login,
+  logout,
+  UnauthorizedError,
+} from "./api/client.ts";
 
 vi.mock("./api/client.ts", () => ({
   fetchSession: vi.fn(),
@@ -12,11 +19,14 @@ vi.mock("./api/client.ts", () => ({
   fetchJokes: vi.fn().mockResolvedValue([]),
   createJoke: vi.fn(),
   InvalidCredentialsError: class extends Error {},
+  UnauthorizedError: class UnauthorizedError extends Error {},
 }));
 
 const fetchSessionMock = vi.mocked(fetchSession);
 const logoutMock = vi.mocked(logout);
 const loginMock = vi.mocked(login);
+const fetchJokesMock = vi.mocked(fetchJokes);
+const createJokeMock = vi.mocked(createJoke);
 
 describe("App", () => {
   beforeEach(() => {
@@ -129,5 +139,50 @@ describe("App", () => {
       screen.getByRole("button", { name: "Wyloguj się" }),
     ).toBeInTheDocument();
     expect(fetchSessionMock).toHaveBeenCalledOnce();
+  });
+
+  it("shows login on an expired session, preserves the draft, then lets the user retry", async () => {
+    fetchSessionMock
+      .mockResolvedValueOnce({ authenticated: true, username: "ja" }) // initial mount
+      .mockResolvedValue({ authenticated: true, username: "ja" }); // after re-login
+    // A private joke from the first session must not reappear after re-auth; it is
+    // dropped and re-fetched. The second fetch returns an empty list.
+    fetchJokesMock
+      .mockResolvedValueOnce([
+        { id: 1, content: "Prywatny żart", createdAt: "2026-11-02T09:00:00Z", version: 0 },
+      ])
+      .mockResolvedValue([]);
+    // First add attempt hits an expired session; the retry after re-auth succeeds.
+    createJokeMock
+      .mockRejectedValueOnce(new UnauthorizedError())
+      .mockResolvedValue({ id: 9, content: "Mój żart", createdAt: "2026-11-02T10:00:00Z", version: 0 });
+    loginMock.mockResolvedValue();
+
+    render(<App />);
+    const field = await screen.findByLabelText("Treść żartu");
+    expect(await screen.findByText("Prywatny żart")).toBeInTheDocument();
+
+    fireEvent.change(field, { target: { value: "Mój żart" } });
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj" }));
+
+    // The 401 bubbles up to App, which shows the login screen; the private joke
+    // from the previous session is no longer on screen.
+    await screen.findByRole("form", { name: "Logowanie" });
+    expect(screen.queryByText("Prywatny żart")).not.toBeInTheDocument();
+
+    // Re-authenticate.
+    fireEvent.change(screen.getByLabelText("Login"), { target: { value: "ja" } });
+    fireEvent.change(screen.getByLabelText("Hasło"), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zaloguj się" }));
+
+    // Back on the main screen: the typed draft survived re-authentication...
+    const restoredField = await screen.findByLabelText("Treść żartu");
+    expect(restoredField).toHaveValue("Mój żart");
+    // ...and the list was re-fetched fresh (no prior-session data lingering).
+    expect(screen.queryByText("Prywatny żart")).not.toBeInTheDocument();
+
+    // Retry the add — it now succeeds.
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj" }));
+    expect(await screen.findByText("Mój żart")).toBeInTheDocument();
   });
 });

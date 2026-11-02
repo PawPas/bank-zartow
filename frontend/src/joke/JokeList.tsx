@@ -1,5 +1,18 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { createJoke, fetchJokes, type Joke } from "../api/client.ts";
+import {
+  createJoke,
+  fetchJokes,
+  UnauthorizedError,
+  type Joke,
+} from "../api/client.ts";
+
+interface JokeListProps {
+  /** The quick-add draft, lifted to App so it survives re-authentication. */
+  draft: string;
+  onDraftChange: (value: string) => void;
+  /** Called when a data request returns 401 so App can show the login screen. */
+  onSessionExpired: () => void;
+}
 
 /**
  * The joke bank's core screen: a list of jokes newest-first and an always-visible
@@ -7,10 +20,9 @@ import { createJoke, fetchJokes, type Joke } from "../api/client.ts";
  * then tap "Dodaj" — so there is no step that reveals the form first. Mobile-first
  * (360 px) and all text is in Polish.
  */
-export default function JokeList() {
+export default function JokeList({ draft, onDraftChange, onSessionExpired }: JokeListProps) {
   const [jokes, setJokes] = useState<Joke[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
@@ -18,33 +30,56 @@ export default function JokeList() {
     let active = true;
     fetchJokes()
       .then((loaded) => {
-        if (active) {
-          setJokes(loaded);
+        if (!active) {
+          return;
         }
+        // Merge instead of replace: a slow initial GET can resolve AFTER a joke was
+        // already created locally. Keep any locally-added jokes the snapshot predates
+        // (they are newer, so they stay on top), then the server list. Dedup by id so
+        // a joke already in the snapshot is not shown twice.
+        setJokes((current) => {
+          if (current === null) {
+            return loaded;
+          }
+          const loadedIds = new Set(loaded.map((joke) => joke.id));
+          const localOnly = current.filter((joke) => !loadedIds.has(joke.id));
+          return [...localOnly, ...loaded];
+        });
       })
-      .catch(() => {
-        if (active) {
-          setLoadFailed(true);
+      .catch((cause) => {
+        if (!active) {
+          return;
         }
+        if (cause instanceof UnauthorizedError) {
+          onSessionExpired();
+          return;
+        }
+        setLoadFailed(true);
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [onSessionExpired]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (content.trim() === "") {
+    if (draft.trim() === "") {
       return;
     }
     setAddError(null);
     setSubmitting(true);
     try {
-      const created = await createJoke(content);
+      const created = await createJoke(draft);
       // Prepend so the newest joke stays on top, matching the backend order.
       setJokes((current) => [created, ...(current ?? [])]);
-      setContent("");
-    } catch {
+      onDraftChange("");
+    } catch (cause) {
+      if (cause instanceof UnauthorizedError) {
+        // Session expired: hand off to App to show the login screen. Keep the typed
+        // draft (App preserves it across re-auth) and show no inline error here.
+        onSessionExpired();
+        return;
+      }
       setAddError("Nie udało się dodać żartu. Spróbuj ponownie.");
     } finally {
       setSubmitting(false);
@@ -59,8 +94,8 @@ export default function JokeList() {
           id="joke-content"
           name="content"
           rows={3}
-          value={content}
-          onChange={(event) => setContent(event.target.value)}
+          value={draft}
+          onChange={(event) => onDraftChange(event.target.value)}
         />
         {addError && (
           <p className="joke-error" role="alert">
