@@ -60,12 +60,37 @@ final class AuthHttpClient {
     }
 
     String csrfToken() {
+        return cookieValue("XSRF-TOKEN");
+    }
+
+    /** The current session id held in the cookie jar, or {@code null} if none. */
+    String sessionId() {
+        return cookieValue("JSESSIONID");
+    }
+
+    private String cookieValue(String name) {
         for (HttpCookie cookie : cookieManager.getCookieStore().getCookies()) {
-            if ("XSRF-TOKEN".equals(cookie.getName())) {
+            if (name.equals(cookie.getName())) {
                 return cookie.getValue();
             }
         }
         return null;
+    }
+
+    /**
+     * Sends a GET with an explicit {@code JSESSIONID} cookie from a fresh client that
+     * has no cookie jar of its own. This replays a captured session id directly,
+     * bypassing any client-side cookie deletion, so a 401 proves the server itself
+     * invalidated the session rather than merely that the cookie was dropped.
+     */
+    static HttpResponse<String> getReplayingSession(int port, String path, String sessionId)
+            throws Exception {
+        HttpClient independent = HttpClient.newBuilder().proxy(HttpClient.Builder.NO_PROXY).build();
+        HttpRequest request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
+                .header("Cookie", "JSESSIONID=" + sessionId)
+                .GET()
+                .build();
+        return independent.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     private HttpResponse<String> postForm(String path, String username, String password, String csrfToken)

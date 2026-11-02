@@ -61,6 +61,13 @@ class AuthIT {
         HttpResponse<String> login = http.login(AuthTestFixtures.USERNAME, "wrong-password");
 
         assertThat(login.statusCode()).isEqualTo(401);
+        assertThat(login.headers().firstValue("Content-Type").orElse(""))
+                .as("errors use the ProblemDetail media type (CONVENTIONS.md)")
+                .contains("application/problem+json");
+        assertThat(login.body())
+                .as("the body is a ProblemDetail (RFC 7807) carrying the 401 status")
+                .contains("\"type\":")
+                .contains("\"status\":401");
         assertThat(login.body().toLowerCase())
                 .as("the failure must not reveal which field was wrong")
                 .doesNotContain("password")
@@ -82,20 +89,34 @@ class AuthIT {
         assertThat(unknownUser.body())
                 .as("an unknown user and a wrong password must be indistinguishable")
                 .isEqualTo(wrongPassword.body());
+        assertThat(unknownUser.headers().firstValue("Content-Type"))
+                .as("both failures also share the same media type")
+                .isEqualTo(wrongPassword.headers().firstValue("Content-Type"));
     }
 
     @Test
-    void sessionIsInvalidAfterLogout() throws Exception {
+    void sessionIsInvalidatedServerSideAfterLogout() throws Exception {
         AuthHttpClient http = new AuthHttpClient(port);
         http.bootstrapSession();
         http.login(AuthTestFixtures.USERNAME, AuthTestFixtures.PASSWORD);
+        // The GET both confirms access and re-arms the CSRF cookie that login rotates.
         assertThat(http.get("/api/auth/me").statusCode()).isEqualTo(200);
+
+        // Capture the live session id and prove it works server-side when replayed by
+        // an independent client (no client-side cookie handling involved).
+        String sessionId = http.sessionId();
+        assertThat(sessionId).isNotBlank();
+        assertThat(AuthHttpClient.getReplayingSession(port, "/api/auth/me", sessionId).statusCode())
+                .as("the captured session must be valid before logout")
+                .isEqualTo(200);
 
         HttpResponse<String> logout = http.logout();
         assertThat(logout.statusCode()).isEqualTo(204);
 
-        assertThat(http.get("/api/auth/me").statusCode())
-                .as("the session must be invalid after logout")
+        // Replaying the SAME pre-logout session id must now fail: this proves the
+        // server invalidated the session, not merely that the client dropped the cookie.
+        assertThat(AuthHttpClient.getReplayingSession(port, "/api/auth/me", sessionId).statusCode())
+                .as("the server must invalidate the session on logout")
                 .isEqualTo(401);
     }
 

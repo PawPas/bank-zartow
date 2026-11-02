@@ -41,12 +41,14 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 public class SecurityConfig {
 
     /**
-     * Fixed, generic response body for a rejected login. It carries no timestamp,
-     * path or field name, so every failure is byte-for-byte identical and never
-     * reveals which field was wrong.
+     * Fixed, generic RFC 7807 {@link org.springframework.http.ProblemDetail} body for
+     * a rejected login, served as {@code application/problem+json} per CONVENTIONS.md.
+     * It carries no timestamp, path or field name, so every failure is byte-for-byte
+     * identical and never reveals which field was wrong.
      */
-    private static final byte[] LOGIN_FAILED_BODY =
-            "{\"error\":\"authentication_failed\"}".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] LOGIN_FAILED_BODY = ("{\"type\":\"about:blank\","
+            + "\"title\":\"Unauthorized\",\"status\":401,"
+            + "\"detail\":\"Uwierzytelnianie nie powiodło się.\"}").getBytes(StandardCharsets.UTF_8);
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -72,7 +74,7 @@ public class SecurityConfig {
                                 response.setStatus(HttpStatus.NO_CONTENT.value()))
                         .failureHandler((request, response, exception) -> {
                             response.setStatus(HttpStatus.UNAUTHORIZED.value());
-                            response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                            response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
                             response.getOutputStream().write(LOGIN_FAILED_BODY);
                         }))
                 .logout(logout -> logout
