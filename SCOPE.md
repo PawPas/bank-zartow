@@ -60,6 +60,13 @@ Kryteria akceptacji:
 - filtry po tagu i statusie działają łącznie
 - dane przetrwają restart aplikacji
 
+Doprecyzowanie (zatwierdzone przez właściciela 2026-11-02; nie zmienia powyższych kryteriów, tylko je uszczegóławia):
+- Treść żartu to kompletny oryginał. Puenty alternatywne są opcjonalne i nigdy nie nadpisują oryginału.
+- „Dokładnie jedna wybrana” obowiązuje, gdy istnieją alternatywy; pierwsza dodana alternatywa zostaje wybrana automatycznie. Żart bez alternatyw ma zero puent (brak wybranej), a oryginał pozostaje nienaruszony.
+- Usunięcie wybranej puenty, gdy istnieją inne, wymaga jawnego wskazania zastępczej przez użytkownika (bez automatycznego wyboru, np. najstarszej); podmiana jest atomowa. Usunięcie ostatniej alternatywy pozostawia zero alternatyw.
+- Statusy to cztery wartości (`pomysl`, `do_poprawy`, `gotowy`, `opublikowany`) z dowolnymi przejściami; „opublikowany” można ustawić również ręcznie.
+- Projekt E1 opisuje `docs/EPIC-1.md`; realizują go taski T-013..T-019 (wszystkie `manual_review: true`).
+
 ### Epik 2: Przygotowanie posta
 
 Zakres:
