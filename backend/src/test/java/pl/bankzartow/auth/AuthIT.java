@@ -113,6 +113,27 @@ class AuthIT {
     }
 
     @Test
+    void loginAgainAfterLogoutSucceedsWhenSpaRefreshesCsrf() throws Exception {
+        // Models the SPA flow: a successful login rotates away the XSRF-TOKEN cookie
+        // and logout clears it, but the SPA re-fetches the session (a GET) after both,
+        // which re-arms the cookie via CsrfCookieFilter. This proves logging in again
+        // after logout works without a page reload.
+        AuthHttpClient http = new AuthHttpClient(port);
+        http.bootstrapSession();
+        assertThat(http.login(AuthTestFixtures.USERNAME, AuthTestFixtures.PASSWORD).statusCode())
+                .isEqualTo(204);
+
+        http.bootstrapSession(); // SPA's post-login session refresh re-arms the token
+        assertThat(http.logout().statusCode()).isEqualTo(204);
+
+        http.bootstrapSession(); // SPA's post-logout session refresh re-arms the token
+        assertThat(http.login(AuthTestFixtures.USERNAME, AuthTestFixtures.PASSWORD).statusCode())
+                .as("logging in again after logout must work once the SPA refreshes CSRF")
+                .isEqualTo(204);
+        assertThat(http.get("/api/auth/me").statusCode()).isEqualTo(200);
+    }
+
+    @Test
     void unauthenticatedApiPathReturns401NotSpaFallback() throws Exception {
         AuthHttpClient http = new AuthHttpClient(port);
 

@@ -13,10 +13,15 @@ import pl.bankzartow.BankZartowApplication;
  * Guards the acceptance criterion "the application does not start without the login
  * credentials". A valid database is provided (so Flyway and the schema check pass)
  * and the app boots as a real servlet app so Spring Security consumes the
- * credentials; {@code app.auth.*} is then blanked with high-precedence command-line
- * arguments. Binding {@link AuthProperties} must reject the blank values and fail
- * startup. Blanking the credentials here is the whole point: it proves the secret
- * has no default.
+ * credentials.
+ *
+ * <p>The credentials are bound straight from the environment and are genuinely
+ * absent in the test JVM (no {@code APP_AUTH_*} variables, and
+ * {@code application.properties} no longer declares {@code ${...}} placeholders).
+ * Each test leaves exactly one of the two truly unset — not merely overridden with
+ * a blank argument — so it reproduces the real "variable not configured" case. The
+ * missing value binds to {@code null} and {@link AuthProperties} rejects it, which
+ * fails startup.
  */
 @Testcontainers
 class MissingCredentialsStartupIT {
@@ -25,18 +30,30 @@ class MissingCredentialsStartupIT {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     @Test
-    void applicationDoesNotStartWithoutCredentials() {
+    void applicationDoesNotStartWhenUsernameIsAbsent() {
+        // Only the password hash is configured; APP_AUTH_USERNAME is truly unset.
         SpringApplicationBuilder application = new SpringApplicationBuilder(BankZartowApplication.class);
 
-        // Command-line args outrank application.properties, so the blank credentials
-        // win over the ${APP_AUTH_*} placeholders and the guard is what fires.
         assertThatThrownBy(() -> application.run(
                 "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
                 "--spring.datasource.username=" + POSTGRES.getUsername(),
                 "--spring.datasource.password=" + POSTGRES.getPassword(),
                 "--server.port=0",
-                "--app.auth.username=",
-                "--app.auth.password-hash="))
-                .hasStackTraceContaining("app.auth");
+                "--app.auth.password-hash={bcrypt}$2b$10$0123456789012345678901"))
+                .hasStackTraceContaining("app.auth.username");
+    }
+
+    @Test
+    void applicationDoesNotStartWhenPasswordHashIsAbsent() {
+        // Only the username is configured; APP_AUTH_PASSWORD_HASH is truly unset.
+        SpringApplicationBuilder application = new SpringApplicationBuilder(BankZartowApplication.class);
+
+        assertThatThrownBy(() -> application.run(
+                "--spring.datasource.url=" + POSTGRES.getJdbcUrl(),
+                "--spring.datasource.username=" + POSTGRES.getUsername(),
+                "--spring.datasource.password=" + POSTGRES.getPassword(),
+                "--server.port=0",
+                "--app.auth.username=tester"))
+                .hasStackTraceContaining("app.auth.password-hash");
     }
 }

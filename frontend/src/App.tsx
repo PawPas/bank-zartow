@@ -10,6 +10,7 @@ type AuthState =
 
 export default function App() {
   const [auth, setAuth] = useState<AuthState>({ status: "loading" });
+  const [logoutError, setLogoutError] = useState<string | null>(null);
 
   const refreshSession = useCallback(async () => {
     try {
@@ -31,11 +32,19 @@ export default function App() {
   }, [refreshSession]);
 
   async function handleLogout() {
+    setLogoutError(null);
     try {
       await logout();
-    } finally {
-      setAuth({ status: "anonymous" });
+    } catch {
+      // The server session may still be valid, so stay logged in and let the user
+      // retry rather than falsely showing a logged-out state.
+      setLogoutError("Nie udało się wylogować. Spróbuj ponownie.");
+      return;
     }
+    // Logout succeeded. Re-fetch the session: this both flips the UI to the login
+    // screen and makes the backend set a fresh XSRF-TOKEN cookie (logout clears
+    // it), so logging in again works without reloading the page.
+    await refreshSession();
   }
 
   if (auth.status === "loading") {
@@ -58,6 +67,11 @@ export default function App() {
           Wyloguj się
         </button>
       </header>
+      {logoutError && (
+        <p className="login-error" role="alert">
+          {logoutError}
+        </p>
+      )}
       <p>Narzędzie do zapisywania żartów i przygotowywania postów.</p>
     </main>
   );
