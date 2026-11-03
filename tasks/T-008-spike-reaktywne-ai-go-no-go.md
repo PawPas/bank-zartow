@@ -2,7 +2,7 @@
 id: T-008
 epic: E-RX
 title: Spike reaktywnego AI — decyzja go/no-go (techniczna i prawna)
-status: todo
+status: done
 depends_on: []
 manual_review: true
 ---
