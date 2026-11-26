@@ -47,20 +47,35 @@ export default function JokeDetails({ jokeId, onBack, onSessionExpired }: JokeDe
     };
   }, []);
 
+  // Monotonic token for reads: a GET response (success or failure) is applied
+  // only if no newer read and no save/delete started after it. A stale read
+  // landing late would otherwise overwrite a fresher version and the draft.
+  const readEpoch = useRef(0);
+
+  // Latest committed draft, so a refresh can tell whether the user typed while
+  // it was in flight without re-creating `load` on every keystroke.
+  const draftRef = useRef("");
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
   const load = useCallback(async () => {
+    const epoch = ++readEpoch.current;
+    const draftAtStart = draftRef.current;
     try {
       const loaded = await fetchJokeDetail(jokeId);
-      if (!mounted.current) {
+      if (!mounted.current || epoch !== readEpoch.current) {
         return;
       }
       setDetail(loaded);
-      // The textarea always shows the freshly loaded server state; on an
-      // explicit refresh after a conflict this is exactly what the user asked for.
-      setDraft(loaded.content);
+      // Replace only a draft untouched since this refresh started; typing done
+      // while the GET was on the wire is never erased. The refreshed version is
+      // taken either way, so the next save sends it.
+      setDraft((current) => (current === draftAtStart ? loaded.content : current));
       setConflict(false);
       setActionError(null);
     } catch (cause) {
-      if (!mounted.current) {
+      if (!mounted.current || epoch !== readEpoch.current) {
         return;
       }
       if (cause instanceof UnauthorizedError) {
@@ -102,6 +117,9 @@ export default function JokeDetails({ jokeId, onBack, onSessionExpired }: JokeDe
     }
     setActionError(null);
     setBusy("saving");
+    // Any read still in flight is stale from now on: applied after this save,
+    // it would roll the version and the draft back.
+    readEpoch.current += 1;
     // The field stays editable while the PUT is in flight, so by the time the
     // response lands the draft may already be newer than what was sent.
     const sentContent = draft;
@@ -133,6 +151,9 @@ export default function JokeDetails({ jokeId, onBack, onSessionExpired }: JokeDe
     }
     setActionError(null);
     setBusy("deleting");
+    // Same as in handleSave: a read still in flight must not land after the
+    // delete and resurrect the view's state.
+    readEpoch.current += 1;
     try {
       await deleteJoke(jokeId, detail.version);
       if (!mounted.current) {

@@ -157,6 +157,128 @@ describe("JokeDetails", () => {
     );
   });
 
+  it("ignores a stale refresh response arriving after a newer refresh and a save", async () => {
+    renderDetails();
+    const field = await screen.findByLabelText("Treść żartu");
+
+    // Force a conflict so the refresh button appears.
+    updateJokeMock.mockRejectedValueOnce(new VersionConflictError());
+    fireEvent.change(field, { target: { value: "Konfliktowa edycja" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    await screen.findByRole("alert");
+
+    // First refresh hangs; the second one, started later, resolves first with
+    // the fresh server state — the reversed completion order.
+    let resolveStale!: (value: JokeDetail) => void;
+    fetchJokeDetailMock.mockReturnValueOnce(
+      new Promise<JokeDetail>((resolve) => {
+        resolveStale = resolve;
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Odśwież" }));
+    fetchJokeDetailMock.mockResolvedValueOnce(
+      detail({ content: "Cudza edycja", version: 5 }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Odśwież" }));
+    await waitFor(() => expect(field).toHaveValue("Cudza edycja"));
+
+    // Save on top of the fresh version, then keep typing.
+    updateJokeMock.mockResolvedValueOnce(detail({ content: "Nowy zapis", version: 6 }));
+    fireEvent.change(field, { target: { value: "Nowy zapis" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    await waitFor(() => expect(updateJokeMock).toHaveBeenLastCalledWith(7, "Nowy zapis", 5));
+    fireEvent.change(field, { target: { value: "Nowszy szkic" } });
+
+    // Only now the first, stale refresh lands — it must be ignored entirely:
+    // neither the draft nor the version may roll back.
+    await act(async () => {
+      resolveStale(detail({ content: "Pierwotna treść", version: 2 }));
+      await Promise.resolve();
+    });
+
+    expect(field).toHaveValue("Nowszy szkic");
+
+    // The next save carries the version from the save, not the stale read.
+    updateJokeMock.mockResolvedValueOnce(detail({ content: "Nowszy szkic", version: 7 }));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    await waitFor(() =>
+      expect(updateJokeMock).toHaveBeenLastCalledWith(7, "Nowszy szkic", 6),
+    );
+  });
+
+  it("does not overwrite typing done while a refresh is in flight", async () => {
+    renderDetails();
+    const field = await screen.findByLabelText("Treść żartu");
+
+    updateJokeMock.mockRejectedValueOnce(new VersionConflictError());
+    fireEvent.change(field, { target: { value: "Konfliktowa edycja" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    await screen.findByRole("alert");
+
+    let resolveRefresh!: (value: JokeDetail) => void;
+    fetchJokeDetailMock.mockReturnValueOnce(
+      new Promise<JokeDetail>((resolve) => {
+        resolveRefresh = resolve;
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Odśwież" }));
+    // The user keeps typing while the refresh is on the wire.
+    fireEvent.change(field, { target: { value: "Pisane w trakcie" } });
+
+    await act(async () => {
+      resolveRefresh(detail({ content: "Cudza edycja", version: 5 }));
+      await Promise.resolve();
+    });
+
+    // The newer typing survives the refresh and the conflict is resolved...
+    expect(field).toHaveValue("Pisane w trakcie");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    // ...while the refreshed version is still picked up by the next save.
+    updateJokeMock.mockResolvedValueOnce(
+      detail({ content: "Pisane w trakcie", version: 6 }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    await waitFor(() =>
+      expect(updateJokeMock).toHaveBeenLastCalledWith(7, "Pisane w trakcie", 5),
+    );
+  });
+
+  it("ignores a stale refresh failure once a newer refresh succeeded", async () => {
+    renderDetails();
+    const field = await screen.findByLabelText("Treść żartu");
+
+    updateJokeMock.mockRejectedValueOnce(new VersionConflictError());
+    fireEvent.change(field, { target: { value: "Konfliktowa edycja" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    await screen.findByRole("alert");
+
+    // First refresh will fail late; the second one succeeds first.
+    let rejectStale!: (reason: unknown) => void;
+    fetchJokeDetailMock.mockReturnValueOnce(
+      new Promise<JokeDetail>((_resolve, reject) => {
+        rejectStale = reject;
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Odśwież" }));
+    fetchJokeDetailMock.mockResolvedValueOnce(
+      detail({ content: "Cudza edycja", version: 5 }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Odśwież" }));
+    await waitFor(() => expect(field).toHaveValue("Cudza edycja"));
+
+    // The stale failure must not flip the view into the load-error state.
+    await act(async () => {
+      rejectStale(new Error("boom"));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByLabelText("Treść żartu")).toHaveValue("Cudza edycja");
+    expect(
+      screen.queryByText("Nie udało się wczytać żartu."),
+    ).not.toBeInTheDocument();
+  });
+
   it("deletes the joke through the API client and goes back to the list", async () => {
     deleteJokeMock.mockResolvedValue();
     const { onBack } = renderDetails();
