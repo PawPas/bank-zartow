@@ -2,7 +2,7 @@
 id: T-013
 epic: E1
 title: Model żartu, szybkie dodawanie i lista
-status: todo
+status: done
 depends_on: [T-006]
 manual_review: true
 ---

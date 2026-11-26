@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { fetchSession, logout } from "./api/client.ts";
 import LoginScreen from "./auth/LoginScreen.tsx";
+import JokeList from "./joke/JokeList.tsx";
 
 type AuthState =
   | { status: "loading" }
@@ -11,6 +12,10 @@ type AuthState =
 export default function App() {
   const [auth, setAuth] = useState<AuthState>({ status: "loading" });
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  // The quick-add draft lives here so it survives the login screen shown on an
+  // expired session. The joke list is NOT kept this way: JokeList unmounts, so a
+  // fresh authenticated fetch replaces it and no prior-session data is shown.
+  const [draft, setDraft] = useState("");
 
   const refreshSession = useCallback(async () => {
     try {
@@ -30,6 +35,13 @@ export default function App() {
   useEffect(() => {
     void refreshSession();
   }, [refreshSession]);
+
+  const handleSessionExpired = useCallback(() => {
+    // A 401 from a data call means the session expired (T-006): show the login
+    // screen. The draft is preserved above; the joke list is dropped so nothing
+    // from the previous session is shown before a fresh, authenticated fetch.
+    setAuth({ status: "anonymous" });
+  }, []);
 
   async function handleLogout() {
     setLogoutError(null);
@@ -72,7 +84,11 @@ export default function App() {
           {logoutError}
         </p>
       )}
-      <p>Narzędzie do zapisywania żartów i przygotowywania postów.</p>
+      <JokeList
+        draft={draft}
+        onDraftChange={setDraft}
+        onSessionExpired={handleSessionExpired}
+      />
     </main>
   );
 }
