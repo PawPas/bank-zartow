@@ -88,6 +88,39 @@ describe("JokeDetails", () => {
     );
   });
 
+  it("keeps a newer draft typed while a slow save is still in flight", async () => {
+    let resolveUpdate!: (value: JokeDetail) => void;
+    updateJokeMock.mockReturnValueOnce(
+      new Promise<JokeDetail>((resolve) => {
+        resolveUpdate = resolve;
+      }),
+    );
+    renderDetails();
+    const field = await screen.findByLabelText("Treść żartu");
+
+    fireEvent.change(field, { target: { value: "Edycja A" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    // The user keeps typing while the PUT response is still on the wire.
+    fireEvent.change(field, { target: { value: "Edycja B" } });
+
+    await act(async () => {
+      resolveUpdate(detail({ content: "Edycja A", version: 3 }));
+      await Promise.resolve();
+    });
+
+    // The late success must not roll the field back to the content it saved —
+    // that would silently erase the newer draft.
+    expect(field).toHaveValue("Edycja B");
+
+    // The bumped version was still picked up: the next save sends the newer
+    // draft with it instead of falsely conflicting.
+    updateJokeMock.mockResolvedValue(detail({ content: "Edycja B", version: 4 }));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    await waitFor(() =>
+      expect(updateJokeMock).toHaveBeenLastCalledWith(7, "Edycja B", 3),
+    );
+  });
+
   it("does not call the API when the edited content is blank", async () => {
     renderDetails();
     const field = await screen.findByLabelText("Treść żartu");
@@ -212,6 +245,7 @@ describe("JokeDetails", () => {
   });
 
   it("ignores a late load response after unmounting", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     let resolveFetch!: (value: JokeDetail) => void;
     fetchJokeDetailMock.mockReturnValue(
       new Promise<JokeDetail>((resolve) => {
@@ -221,11 +255,35 @@ describe("JokeDetails", () => {
     const { view } = renderDetails();
     view.unmount();
 
-    // Resolving after unmount must not blow up or touch any state.
+    // Resolving after unmount must be dropped silently: no state update on the
+    // dead view, which React would report through console.error.
     await act(async () => {
       resolveFetch(detail());
       await Promise.resolve();
     });
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("ignores a late load 401 after unmounting (no login screen from a dead view)", async () => {
+    let rejectFetch!: (reason: unknown) => void;
+    fetchJokeDetailMock.mockReturnValue(
+      new Promise<JokeDetail>((_resolve, reject) => {
+        rejectFetch = reject;
+      }),
+    );
+    const { onSessionExpired, view } = renderDetails();
+    view.unmount();
+
+    // The 401 lands only after the view is gone — it must not drag the app to
+    // the login screen.
+    await act(async () => {
+      rejectFetch(new UnauthorizedError());
+      await Promise.resolve();
+    });
+
+    expect(onSessionExpired).not.toHaveBeenCalled();
   });
 
   it("goes back to the list with the back button", async () => {

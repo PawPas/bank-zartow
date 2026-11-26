@@ -102,14 +102,19 @@ export default function JokeDetails({ jokeId, onBack, onSessionExpired }: JokeDe
     }
     setActionError(null);
     setBusy("saving");
+    // The field stays editable while the PUT is in flight, so by the time the
+    // response lands the draft may already be newer than what was sent.
+    const sentContent = draft;
     try {
-      const updated = await updateJoke(jokeId, draft, detail.version);
+      const updated = await updateJoke(jokeId, sentContent, detail.version);
       if (!mounted.current) {
         return;
       }
       // Track the bumped version so the next save does not falsely conflict.
       setDetail(updated);
-      setDraft(updated.content);
+      // Only a draft still equal to the sent content is replaced by the saved
+      // (normalized) one; a newer draft typed meanwhile must never be erased.
+      setDraft((current) => (current === sentContent ? updated.content : current));
     } catch (cause) {
       if (!mounted.current) {
         return;

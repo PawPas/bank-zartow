@@ -374,4 +374,32 @@ class JokeDetailIT {
                 .isEqualTo("Szybsza edycja");
         assertThat(persisted.getVersion()).isEqualTo(1);
     }
+
+    @Test
+    void realOptimisticLockConflictRollsBackTheLateDelete() {
+        // Same true-race shape for deletion: the delete transaction reads version 0,
+        // a faster transaction edits and commits, and the versioned DELETE at flush
+        // (WHERE version = 0) matches nothing — the joke must survive untouched.
+        long id = service.create("Oryginal").getId();
+
+        TransactionTemplate late = new TransactionTemplate(transactionManager);
+        TransactionTemplate fast = new TransactionTemplate(transactionManager);
+        fast.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        assertThatThrownBy(() -> late.executeWithoutResult(status -> {
+            Joke stale = repository.findById(id).orElseThrow();
+            assertThat(stale.getVersion()).isZero();
+            fast.executeWithoutResult(inner -> {
+                Joke fresh = repository.findById(id).orElseThrow();
+                fresh.updateContent("Szybsza edycja", Instant.now());
+            });
+            repository.delete(stale);
+        })).isInstanceOf(OptimisticLockingFailureException.class);
+
+        Joke persisted = repository.findById(id).orElseThrow();
+        assertThat(persisted.getContent())
+                .as("the late delete was rolled back, the fast edit survives")
+                .isEqualTo("Szybsza edycja");
+        assertThat(persisted.getVersion()).isEqualTo(1);
+    }
 }
