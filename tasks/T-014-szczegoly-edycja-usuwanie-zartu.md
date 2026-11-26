@@ -2,7 +2,7 @@
 id: T-014
 epic: E1
 title: Szczegóły, edycja treści i usuwanie żartu z kontrolą wersji
-status: todo
+status: done
 depends_on: [T-013]
 manual_review: true
 ---

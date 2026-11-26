@@ -1,13 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createJoke,
+  deleteJoke,
   fetchHealth,
+  fetchJokeDetail,
   fetchJokes,
   fetchSession,
   InvalidCredentialsError,
   login,
   logout,
+  NotFoundError,
   UnauthorizedError,
+  updateJoke,
+  VersionConflictError,
 } from "./client.ts";
 
 function mockFetchResponse(response: Partial<Response>): void {
@@ -140,5 +145,108 @@ describe("createJoke", () => {
     mockFetchResponse({ ok: false, status: 401 });
 
     await expect(createJoke("x")).rejects.toBeInstanceOf(UnauthorizedError);
+  });
+});
+
+const detail = {
+  id: 7,
+  content: "Szczegółowy żart",
+  createdAt: "2026-11-20T10:00:00Z",
+  updatedAt: "2026-11-21T11:00:00Z",
+  version: 2,
+};
+
+describe("fetchJokeDetail", () => {
+  it("returns the joke's details", async () => {
+    mockFetchResponse({ ok: true, status: 200, json: async () => detail });
+
+    const result = await fetchJokeDetail(7);
+
+    expect(result).toEqual(detail);
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/jokes/7",
+      expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("throws NotFoundError on a 404 so the UI can say the joke is gone", async () => {
+    mockFetchResponse({ ok: false, status: 404 });
+
+    await expect(fetchJokeDetail(7)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("throws UnauthorizedError on a 401", async () => {
+    mockFetchResponse({ ok: false, status: 401 });
+
+    await expect(fetchJokeDetail(7)).rejects.toBeInstanceOf(UnauthorizedError);
+  });
+});
+
+describe("updateJoke", () => {
+  it("PUTs the content and version as JSON with the CSRF header", async () => {
+    document.cookie = "XSRF-TOKEN=tok-abc";
+    const updated = { ...detail, content: "Nowa treść", version: 3 };
+    mockFetchResponse({ ok: true, status: 200, json: async () => updated });
+
+    const result = await updateJoke(7, "Nowa treść", 2);
+
+    expect(result).toEqual(updated);
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe("/api/jokes/7");
+    expect(init?.method).toBe("PUT");
+    expect((init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    expect((init?.headers as Record<string, string>)["X-XSRF-TOKEN"]).toBe("tok-abc");
+    expect(init?.body).toBe(JSON.stringify({ content: "Nowa treść", version: 2 }));
+  });
+
+  it("throws VersionConflictError on a 409", async () => {
+    mockFetchResponse({ ok: false, status: 409 });
+
+    await expect(updateJoke(7, "x", 0)).rejects.toBeInstanceOf(VersionConflictError);
+  });
+
+  it("throws NotFoundError on a 404", async () => {
+    mockFetchResponse({ ok: false, status: 404 });
+
+    await expect(updateJoke(7, "x", 0)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("throws UnauthorizedError on a 401", async () => {
+    mockFetchResponse({ ok: false, status: 401 });
+
+    await expect(updateJoke(7, "x", 0)).rejects.toBeInstanceOf(UnauthorizedError);
+  });
+});
+
+describe("deleteJoke", () => {
+  it("DELETEs with the version in If-Match and the CSRF header", async () => {
+    document.cookie = "XSRF-TOKEN=tok-del";
+    mockFetchResponse({ ok: true, status: 204 });
+
+    await deleteJoke(7, 2);
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe("/api/jokes/7");
+    expect(init?.method).toBe("DELETE");
+    expect((init?.headers as Record<string, string>)["If-Match"]).toBe("2");
+    expect((init?.headers as Record<string, string>)["X-XSRF-TOKEN"]).toBe("tok-del");
+  });
+
+  it("throws VersionConflictError on a 409", async () => {
+    mockFetchResponse({ ok: false, status: 409 });
+
+    await expect(deleteJoke(7, 0)).rejects.toBeInstanceOf(VersionConflictError);
+  });
+
+  it("throws NotFoundError on a 404", async () => {
+    mockFetchResponse({ ok: false, status: 404 });
+
+    await expect(deleteJoke(7, 0)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("throws UnauthorizedError on a 401", async () => {
+    mockFetchResponse({ ok: false, status: 401 });
+
+    await expect(deleteJoke(7, 0)).rejects.toBeInstanceOf(UnauthorizedError);
   });
 });

@@ -27,14 +27,20 @@ function joke(id: number, content: string): Joke {
  * does under App (controlled value that updates as the user types).
  */
 function renderJokeList(onSessionExpired: () => void = vi.fn()) {
+  const onOpenJoke = vi.fn();
   function Harness() {
     const [draft, setDraft] = useState("");
     return (
-      <JokeList draft={draft} onDraftChange={setDraft} onSessionExpired={onSessionExpired} />
+      <JokeList
+        draft={draft}
+        onDraftChange={setDraft}
+        onOpenJoke={onOpenJoke}
+        onSessionExpired={onSessionExpired}
+      />
     );
   }
   render(<Harness />);
-  return { onSessionExpired };
+  return { onSessionExpired, onOpenJoke };
 }
 
 describe("JokeList", () => {
@@ -56,6 +62,15 @@ describe("JokeList", () => {
 
     expect(await screen.findByText("Najnowszy żart")).toBeInTheDocument();
     expect(screen.getByText("Starszy żart")).toBeInTheDocument();
+  });
+
+  it("opens a joke's details when the joke is tapped", async () => {
+    fetchJokesMock.mockResolvedValue([joke(3, "Klikalny żart")]);
+    const { onOpenJoke } = renderJokeList();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Klikalny żart" }));
+
+    expect(onOpenJoke).toHaveBeenCalledWith(3);
   });
 
   it("shows an empty-state message when there are no jokes", async () => {

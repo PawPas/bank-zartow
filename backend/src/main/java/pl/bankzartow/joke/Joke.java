@@ -52,6 +52,16 @@ public class Joke {
         this.updatedAt = createdAt;
     }
 
+    /**
+     * Replaces the content and refreshes the modification timestamp. Nothing else
+     * changes; the optimistic-lock version is bumped by Hibernate at flush.
+     * {@code content} must already be normalized and non-blank (see {@link JokeService}).
+     */
+    void updateContent(String content, Instant now) {
+        this.content = content;
+        this.updatedAt = now;
+    }
+
     public Long getId() {
         return id;
     }

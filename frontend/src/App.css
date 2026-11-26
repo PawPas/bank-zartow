@@ -87,11 +87,70 @@
 }
 
 .joke-item {
+  display: block;
+  width: 100%;
   padding: 0.75rem;
   border: 1px solid #ddd;
   border-radius: 6px;
   white-space: pre-wrap;
   color: #222;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Joke details: in-place edit and delete, stacked for a narrow phone screen. */
+.joke-details {
+  margin-top: 1rem;
+}
+
+.joke-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.joke-edit textarea {
+  padding: 0.5rem;
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.joke-dates {
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.joke-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.joke-actions button {
+  padding: 0.6rem;
+  font-size: 1rem;
+}
+
+.joke-delete {
+  color: #b00020;
+}
+
+.joke-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid #b00020;
+  border-radius: 6px;
+}
+
+.joke-conflict button {
+  padding: 0.6rem;
+  font-size: 1rem;
 }
 
 @media (min-width: 768px) {

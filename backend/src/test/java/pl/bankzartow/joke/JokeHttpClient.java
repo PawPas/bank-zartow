@@ -54,18 +54,57 @@ final class JokeHttpClient {
 
     /** POSTs a JSON body echoing the CSRF token, like the SPA does. */
     HttpResponse<String> postJson(String path, String json) throws Exception {
-        return postJson(path, json, csrfToken());
+        return sendJson("POST", path, json, csrfToken());
     }
 
     /** POSTs a JSON body deliberately omitting the CSRF token. */
     HttpResponse<String> postJsonWithoutCsrf(String path, String json) throws Exception {
-        return postJson(path, json, null);
+        return sendJson("POST", path, json, null);
     }
 
-    private HttpResponse<String> postJson(String path, String json, String csrfToken) throws Exception {
+    /** PUTs a JSON body echoing the CSRF token, like the SPA does. */
+    HttpResponse<String> putJson(String path, String json) throws Exception {
+        return sendJson("PUT", path, json, csrfToken());
+    }
+
+    /** PUTs a JSON body deliberately omitting the CSRF token. */
+    HttpResponse<String> putJsonWithoutCsrf(String path, String json) throws Exception {
+        return sendJson("PUT", path, json, null);
+    }
+
+    /** DELETEs with the expected version in {@code If-Match}, echoing the CSRF token. */
+    HttpResponse<String> delete(String path, String ifMatch) throws Exception {
+        return sendDelete(path, ifMatch, csrfToken());
+    }
+
+    /** DELETEs with {@code If-Match} but deliberately omitting the CSRF token. */
+    HttpResponse<String> deleteWithoutCsrf(String path, String ifMatch) throws Exception {
+        return sendDelete(path, ifMatch, null);
+    }
+
+    /** DELETEs deliberately omitting the {@code If-Match} version header. */
+    HttpResponse<String> deleteWithoutIfMatch(String path) throws Exception {
+        return sendDelete(path, null, csrfToken());
+    }
+
+    private HttpResponse<String> sendJson(String method, String path, String json, String csrfToken)
+            throws Exception {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8));
+                .method(method, HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8));
+        if (csrfToken != null) {
+            builder.header("X-XSRF-TOKEN", csrfToken);
+        }
+        return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> sendDelete(String path, String ifMatch, String csrfToken)
+            throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .method("DELETE", HttpRequest.BodyPublishers.noBody());
+        if (ifMatch != null) {
+            builder.header("If-Match", ifMatch);
+        }
         if (csrfToken != null) {
             builder.header("X-XSRF-TOKEN", csrfToken);
         }
