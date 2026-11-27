@@ -162,8 +162,13 @@ unieważnianie-przy-wydaniu:
 Pozostałe ryzyko opisane uczciwie: przy pełnej puli i oknie limitera napastnik
 spamujący formularz sprawia, że *nowe* maile chwilowo nie wychodzą; właściciel używa
 dowolnego z już dostarczonych linków albo czeka do końca okna, a logowanie hasłem
-działa niezależnie. Żadna anonimowa akcja nie unieważnia dostarczonego ważnego linku
-i nie blokuje trwale żadnej ścieżki logowania.
+działa niezależnie. Gwarancje puli są celowo wąskie i tylko takie: żadna anonimowa
+akcja nie unieważnia wydanego ważnego tokenu, a logowanie hasłem pozostaje niezależne
+od limitów magic linku. Ryzyka rezydualne pozostają: limit confirm per IP może przy
+wspólnym IP czasowo uniemożliwiać potwierdzenie także właścicielowi, a ponawiany atak
+może ten stan podtrzymywać przez kolejne okna (tradeoff opisany w §9 i T-024); pula
+jest ograniczona i nie gwarantuje dostarczenia żadnego maila (punkt „Błąd wysyłki
+a pula" powyżej).
 
 Parametry (N, zachowanie przy pełnej puli, unieważnianie po sukcesie) są propozycjami
 domyślnymi do zatwierdzenia lub zmiany przez właściciela (D-ML6); wszystkie odwracalne
@@ -256,9 +261,12 @@ opartego o mock ani bez limitera.** Mechanizm:
   (wysyłka trwa) może teoretycznie różnicować odpowiedzi; nie obiecujemy pełnej
   odporności na timing. Dozwolony adres jest jeden i jest adresem właściciela — to
   sekret o niskiej wartości.
-- **Denial-of-login.** Rozwiązany polityką puli (§6): anonimowe żądania nie
-  unieważniają wydanych tokenów, limity wygasają z oknem, logowanie hasłem działa
-  niezależnie od limitów magic linku.
+- **Denial-of-login.** Ograniczony, nie wyeliminowany. Polityka puli (§6) daje
+  wyłącznie dwie gwarancje: anonimowe żądania nie unieważniają wydanych tokenów
+  (limity wygasają z oknem), a logowanie hasłem działa niezależnie od limitów magic
+  linku. Ryzyko rezydualne: przy wspólnym IP limit confirm może czasowo blokować
+  potwierdzanie także właścicielowi, podtrzymywalnie przez ponawiany atak (punkt
+  o rate limitingu niżej), a pula jest ograniczona bez gwarancji dostarczenia maila.
 - **Mail = pełny dostęp.** Magic link sprowadza bezpieczeństwo konta do bezpieczeństwa
   skrzynki właściciela. Świadoma zamiana (telefon, wygoda); hasło zostaje jako druga
   ścieżka do decyzji D-ML5. Magic link nie jest „bezpieczniejszy od hasła" — jest
@@ -448,3 +456,16 @@ Niezależny reviewer zgłosił 5 ustaleń (2×P1, 3×P2); wszystkie uwzględnion
    (dev-only endpoint z ostatnim linkiem z mocka), wyjątek od I5 wąski i jawny
    (tylko mail + ten kanał, tylko test/dev), produkcja bez kanału z testem
    gwardowym (§9, I5, T-021).
+
+### Zmiany po drugiej rundzie review (PR #17)
+
+Jedno pozostałe ustalenie (P2): dwa sformułowania wciąż deklarowały za dużo —
+„nie blokuje trwale żadnej ścieżki logowania" (§6) i „Denial-of-login. Rozwiązany
+polityką puli" (§9) — sprzecznie z opisanym w tym samym dokumencie podtrzymywalnym
+ograniczeniem confirm przy wspólnym IP. Oba zawężone do dwóch faktycznych gwarancji
+(anonimowe żądania nie unieważniają wydanych tokenów; logowanie hasłem niezależne)
+z jawnym ryzykiem rezydualnym: czasowa, podtrzymywalna blokada confirm przy wspólnym
+IP oraz ograniczona pula bez gwarancji dostarczenia maila. Przy przeglądzie całości
+pod kątem równoważnych nadmiernych gwarancji dodano też „trwałego" w tytule T-024
+(„bez trwałego lockoutu właściciela"). Polityka, kryteria akceptacji i decyzje
+D-ML1..D-ML6 bez zmian.

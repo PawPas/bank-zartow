@@ -1,7 +1,7 @@
 ---
 id: T-024
 epic: E-ML
-title: Rate limiting magic linku bez lockoutu właściciela
+title: Rate limiting magic linku bez trwałego lockoutu właściciela
 status: blocked
 depends_on: [T-021, T-022]
 manual_review: true
