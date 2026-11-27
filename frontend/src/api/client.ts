@@ -18,6 +18,15 @@ export interface Joke {
   version: number;
 }
 
+/** Details of a single joke. Extensible: later tasks add status, tags etc. */
+export interface JokeDetail {
+  id: number;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+
 // In production the frontend is served by Spring Boot from the same origin, so
 // an empty base means "same host". Overridable for local development via Vite.
 const baseUrl: string = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -35,6 +44,25 @@ export class InvalidCredentialsError extends Error {
   constructor() {
     super("Nieprawidłowy login lub hasło.");
     this.name = "InvalidCredentialsError";
+  }
+}
+
+/** Thrown when the requested joke does not exist (anymore). */
+export class NotFoundError extends Error {
+  constructor() {
+    super("Not found");
+    this.name = "NotFoundError";
+  }
+}
+
+/**
+ * Thrown when a modifying call carries a stale version (409): someone else
+ * changed the joke in the meantime and the UI must refresh before retrying.
+ */
+export class VersionConflictError extends Error {
+  constructor() {
+    super("Version conflict");
+    this.name = "VersionConflictError";
   }
 }
 
@@ -128,6 +156,70 @@ export async function createJoke(content: string): Promise<Joke> {
     throw new Error(`Creating a joke failed with status ${response.status}`);
   }
   return (await response.json()) as Joke;
+}
+
+// Shared status handling for the single-joke endpoints.
+function throwForJokeStatus(status: number): never {
+  if (status === 401) {
+    throw new UnauthorizedError();
+  }
+  if (status === 404) {
+    throw new NotFoundError();
+  }
+  if (status === 409) {
+    throw new VersionConflictError();
+  }
+  throw new Error(`Joke request failed with status ${status}`);
+}
+
+/** Loads the details of a single joke. */
+export async function fetchJokeDetail(id: number): Promise<JokeDetail> {
+  const response = await fetch(`${baseUrl}/api/jokes/${id}`, {
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throwForJokeStatus(response.status);
+  }
+  return (await response.json()) as JokeDetail;
+}
+
+/**
+ * Replaces a joke's content. `version` is the optimistic-lock version the UI
+ * last saw; a stale one surfaces as {@link VersionConflictError}.
+ */
+export async function updateJoke(
+  id: number,
+  content: string,
+  version: number,
+): Promise<JokeDetail> {
+  const response = await fetch(`${baseUrl}/api/jokes/${id}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...csrfHeaders(),
+    },
+    body: JSON.stringify({ content, version }),
+  });
+  if (!response.ok) {
+    throwForJokeStatus(response.status);
+  }
+  return (await response.json()) as JokeDetail;
+}
+
+/** Deletes a joke, sending its expected version in the If-Match header. */
+export async function deleteJoke(id: number, version: number): Promise<void> {
+  const response = await fetch(`${baseUrl}/api/jokes/${id}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: {
+      "If-Match": String(version),
+      ...csrfHeaders(),
+    },
+  });
+  if (!response.ok) {
+    throwForJokeStatus(response.status);
+  }
 }
 
 export async function logout(): Promise<void> {

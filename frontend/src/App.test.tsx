@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.tsx";
 import {
   createJoke,
+  deleteJoke,
+  fetchJokeDetail,
   fetchJokes,
   fetchSession,
   login,
@@ -18,8 +20,13 @@ vi.mock("./api/client.ts", () => ({
   // Default to an empty list so these App-level tests stay focused on auth.
   fetchJokes: vi.fn().mockResolvedValue([]),
   createJoke: vi.fn(),
+  fetchJokeDetail: vi.fn(),
+  updateJoke: vi.fn(),
+  deleteJoke: vi.fn(),
   InvalidCredentialsError: class extends Error {},
   UnauthorizedError: class UnauthorizedError extends Error {},
+  VersionConflictError: class VersionConflictError extends Error {},
+  NotFoundError: class NotFoundError extends Error {},
 }));
 
 const fetchSessionMock = vi.mocked(fetchSession);
@@ -27,6 +34,8 @@ const logoutMock = vi.mocked(logout);
 const loginMock = vi.mocked(login);
 const fetchJokesMock = vi.mocked(fetchJokes);
 const createJokeMock = vi.mocked(createJoke);
+const fetchJokeDetailMock = vi.mocked(fetchJokeDetail);
+const deleteJokeMock = vi.mocked(deleteJoke);
 
 /** A promise whose resolve/reject are exposed, to control response ordering. */
 function deferred<T>() {
@@ -203,6 +212,63 @@ describe("App", () => {
     // Retry the add — it now succeeds.
     fireEvent.click(screen.getByRole("button", { name: "Dodaj" }));
     expect(await screen.findByText("Mój żart")).toBeInTheDocument();
+  });
+
+  it("opens a joke's details from the list and comes back with the back button", async () => {
+    fetchSessionMock.mockResolvedValue({ authenticated: true, username: "ja" });
+    fetchJokesMock.mockResolvedValue([
+      { id: 3, content: "Klikalny żart", createdAt: "2026-11-20T10:00:00Z", version: 0 },
+    ]);
+    fetchJokeDetailMock.mockResolvedValue({
+      id: 3,
+      content: "Klikalny żart",
+      createdAt: "2026-11-20T10:00:00Z",
+      updatedAt: "2026-11-20T10:00:00Z",
+      version: 0,
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Klikalny żart" }));
+
+    // The detail view is shown with the data loaded through the API client.
+    expect(await screen.findByLabelText("Treść żartu")).toHaveValue("Klikalny żart");
+    expect(fetchJokeDetailMock).toHaveBeenCalledWith(3);
+    expect(screen.queryByRole("button", { name: "Dodaj" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Wróć" }));
+
+    // Back on the list, which is re-fetched fresh (mount effect runs again).
+    expect(await screen.findByRole("button", { name: "Dodaj" })).toBeInTheDocument();
+    expect(fetchJokesMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns to a re-fetched list after deleting a joke from the details", async () => {
+    fetchSessionMock.mockResolvedValue({ authenticated: true, username: "ja" });
+    fetchJokesMock
+      .mockResolvedValueOnce([
+        { id: 3, content: "Do usunięcia", createdAt: "2026-11-20T10:00:00Z", version: 0 },
+      ])
+      .mockResolvedValue([]);
+    fetchJokeDetailMock.mockResolvedValue({
+      id: 3,
+      content: "Do usunięcia",
+      createdAt: "2026-11-20T10:00:00Z",
+      updatedAt: "2026-11-20T10:00:00Z",
+      version: 0,
+    });
+    deleteJokeMock.mockResolvedValue();
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Do usunięcia" }));
+    await screen.findByLabelText("Treść żartu");
+
+    fireEvent.click(screen.getByRole("button", { name: "Usuń" }));
+
+    // Deletion goes through the API client and the app returns to the list,
+    // which no longer contains the deleted joke.
+    expect(await screen.findByText("Nie masz jeszcze żadnych żartów.")).toBeInTheDocument();
+    expect(deleteJokeMock).toHaveBeenCalledWith(3, 0);
+    expect(screen.queryByText("Do usunięcia")).not.toBeInTheDocument();
   });
 
   it("ignores a late old-POST success after logout and re-login (keeps the new session's draft)", async () => {

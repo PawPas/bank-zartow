@@ -10,6 +10,8 @@ interface JokeListProps {
   /** The quick-add draft, lifted to App so it survives re-authentication. */
   draft: string;
   onDraftChange: (value: string) => void;
+  /** Called when the user taps a joke to open its details. */
+  onOpenJoke: (id: number) => void;
   /** Called when a data request returns 401 so App can show the login screen. */
   onSessionExpired: () => void;
 }
@@ -20,7 +22,12 @@ interface JokeListProps {
  * then tap "Dodaj" — so there is no step that reveals the form first. Mobile-first
  * (360 px) and all text is in Polish.
  */
-export default function JokeList({ draft, onDraftChange, onSessionExpired }: JokeListProps) {
+export default function JokeList({
+  draft,
+  onDraftChange,
+  onOpenJoke,
+  onSessionExpired,
+}: JokeListProps) {
   const [jokes, setJokes] = useState<Joke[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -147,8 +154,14 @@ export default function JokeList({ draft, onDraftChange, onSessionExpired }: Jok
       ) : (
         <ul className="joke-items">
           {jokes.map((joke) => (
-            <li key={joke.id} className="joke-item">
-              {joke.content}
+            <li key={joke.id}>
+              <button
+                type="button"
+                className="joke-item"
+                onClick={() => onOpenJoke(joke.id)}
+              >
+                {joke.content}
+              </button>
             </li>
           ))}
         </ul>
