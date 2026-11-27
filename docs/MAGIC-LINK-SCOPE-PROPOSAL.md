@@ -42,9 +42,10 @@ Zakres:
 - rate limiting żądań i potwierdzeń bez trwałej blokady właściciela
 - port wysyłki maila z implementacją mock dla testów i pracy lokalnej; realny
   dostawca dopiero po osobnej decyzji właściciela
-- fail-closed: bez pełnej konfiguracji (adres, publiczny URL, realna wysyłka)
-  funkcja jest wyłączona, a aplikacja działa jak dotąd; mock wysyłki nigdy nie
-  działa w konfiguracji produkcyjnej
+- fail-closed: wspólna, domyślnie zamknięta bramka obu endpointów; bez pełnej
+  gotowości (adres, publiczny URL, a w produkcji realna wysyłka i limiter)
+  funkcja — łącznie z potwierdzaniem — jest wyłączona, a aplikacja działa jak
+  dotąd; mock wysyłki nigdy nie działa w konfiguracji produkcyjnej
 
 Poza zakresem:
 - rejestracja, wielu użytkowników, role (§5 bez zmian)
@@ -63,8 +64,9 @@ Kryteria akceptacji:
 - odpowiedź na żądanie linku nie zdradza, czy podany adres jest dozwolony
 - anonimowe żądania nie unieważniają wydanego ważnego linku ani nie blokują
   logowania hasłem; limity wygasają samoczynnie
-- bez pełnej konfiguracji funkcja jest wyłączona, a mock wysyłki nie istnieje
-  w konfiguracji produkcyjnej (potwierdzone testem)
+- bez pełnej gotowości oba endpointy funkcji są wyłączone (także potwierdzanie,
+  również przy istniejącym ważnym tokenie), a mock wysyłki nie istnieje
+  w konfiguracji produkcyjnej (potwierdzone testami)
 - realny dostawca e-mail podłączany wyłącznie po decyzji właściciela; testy działają
   na mocku, sekrety poza repozytorium
 

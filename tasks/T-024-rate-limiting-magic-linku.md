@@ -8,8 +8,11 @@ manual_review: true
 ---
 
 ## Cel
-Ograniczyć spam mailowy i zgadywanie tokenów tak, żeby atakujący nie mógł ani zalać
-skrzynki właściciela, ani zablokować mu logowania żadną ścieżką.
+Ograniczyć spam mailowy i zgadywanie tokenów tak, żeby atakujący nie mógł zalać
+skrzynki właściciela, unieważnić mu wydanych tokenów ani zablokować logowania
+hasłem. Limit potwierdzeń per IP jest świadomym tradeoffem dostępności przy
+wspólnym IP (opisanym w zakresie) — task nie obiecuje nieblokowalności każdej
+ścieżki logowania.
 
 ## Zakres
 - liczniki w pamięci procesu (jedna instancja produkcyjna), okna czasowe
@@ -25,6 +28,14 @@ skrzynki właściciela, ani zablokować mu logowania żadną ścieżką.
 - przekroczenie limitów nie unieważnia wydanych tokenów, nie zmniejsza puli
   aktywnych tokenów i nie wpływa na logowanie hasłem
 - limity wygasają z upływem okna (brak trwałej blokady)
+- zgłoszenie zdolności `limiter` do bramki `MagicLinkGate` z T-020 — od tego taska
+  bramka może uzyskać w produkcji komplet zdolności (drugą, `wysylka`, zgłosi
+  dopiero realny adapter z T-025)
+- jawny tradeoff wspólnego IP (do udokumentowania w tasku, spójnie
+  z `docs/EPIC-MAGIC-LINK.md` §9): po wyczerpaniu limitu confirm per IP także
+  właściciel dzielący IP z napastnikiem dostaje 429 do końca okna, a ponawiany
+  atak może ten stan podtrzymywać przez kolejne okna; token pozostaje wtedy
+  niezużyty i ważny (w granicach TTL), a logowanie hasłem działa niezależnie
 
 ## Poza zakresem
 - trwałe magazyny liczników, blokady kont, captcha
@@ -35,13 +46,20 @@ skrzynki właściciela, ani zablokować mu logowania żadną ścieżką.
 - [ ] po przekroczeniu limitu per adres odpowiedź to nadal 202, ale mail nie jest
       wysyłany i token nie jest wydawany
 - [ ] zachowanie limitu per adres jest identyczne dla adresu dozwolonego i obcego
-- [ ] limit nie unieważnia wcześniej wydanego tokenu (potwierdzenie nadal działa)
+- [ ] wyczerpanie limitów żądań (per IP i per adres) nie unieważnia wcześniej
+      wydanego tokenu — potwierdzenie tym tokenem przechodzi
+- [ ] po wyczerpaniu limitu confirm per IP kolejne potwierdzenia dostają 429,
+      a token pozostaje niezużyty i ważny; po upływie okna potwierdzenie tym samym
+      tokenem przechodzi (w granicach TTL)
 - [ ] logowanie hasłem działa niezależnie od wyczerpania limitów magic linku
 - [ ] po upływie okna (przesunięcie `Clock`) żądania znów przechodzą
+- [ ] z zgłoszoną zdolnością `limiter` i jawną testową zdolnością `wysylka` bramka
+      `MagicLinkGate` się otwiera; bez `limiter` pozostaje zamknięta
 
 ## Testy
-- IT (Testcontainers): wszystkie kryteria; okna sterowane wstrzykiwanym `Clock`,
-  bez sleepów
+- IT (Testcontainers): wszystkie kryteria, z osobnymi scenariuszami dla limitu
+  żądań (issuance) i limitu potwierdzeń (confirm), w tym asercja „token niezużyty
+  przy 429"; okna sterowane wstrzykiwanym `Clock`, bez sleepów
 - test jednostkowy: logika licznika i okna
 
 ## Blokada

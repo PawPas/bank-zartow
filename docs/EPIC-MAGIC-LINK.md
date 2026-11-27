@@ -58,7 +58,8 @@ Logowanie hasłem pozostaje nietknięte co najmniej do decyzji D-ML5.
         |
 [przycisk] --POST /api/auth/magic-link/confirm {token} + X-XSRF-TOKEN-->
         |      atomowe zużycie (dokładnie jeden zwycięzca w wyścigu)
-        |      zmiana ID sesji (anty-fixation), SecurityContext w sesji
+        |      sesja: rotacja ID istniejącej albo jawne utworzenie nowej
+        |      (anty-fixation, §9), SecurityContext w sesji
         v
      204 + sesja --> SPA przechodzi do aplikacji jak po zwykłym logowaniu
 ```
@@ -114,7 +115,9 @@ wydawania nowego tokenu (jedno konto — tabela jest mikroskopijna); bez schedul
   (denial-of-login). Pozostawienie logowania hasłem nie jest odpowiedzią na ten
   problem — to osobna ścieżka, a blokada ścieżki magic linku pozostawałaby realna.
 - **I5. Token, pełny URL linku ani adres z formularza nie trafiają do logów** na
-  ścieżce produkcyjnej (logi aplikacji i komunikaty wyjątków).
+  ścieżce produkcyjnej (logi aplikacji i komunikaty wyjątków). Jedyny wyjątek poza
+  treścią maila to wąski kanał dev-podglądu istniejący wyłącznie w konfiguracji
+  test/dev (§9).
 - **I6. Odpowiedź na żądanie linku jest identyczna** (status i body) niezależnie od
   tego, czy adres jest dozwolony, czy mail wyszedł, czy zadziałał limit per adres,
   czy pula aktywnych tokenów jest pełna.
@@ -132,9 +135,19 @@ unieważnianie-przy-wydaniu:
   tokenów naraz; propozycja domyślna N=3, w konfiguracji, odwracalna.
 - **Przy pełnej puli** nowe żądanie **nie wydaje tokenu i nie wysyła maila**, a
   odpowiedź pozostaje `202` (I6 — zachowanie obserwowalne identyczne jak limit per
-  adres). Wszystkie maile i tak idą wyłącznie na jedyny dozwolony adres, więc
-  właściciel zawsze ma w skrzynce komplet ważnych linków z bieżącej puli — zapełnienie
-  puli przez napastnika nie odbiera właścicielowi żadnego już dostarczonego linku.
+  adres). Zapełnienie puli nie unieważnia żadnego wydanego tokenu, a wszystkie maile
+  idą wyłącznie na jedyny dozwolony adres — linki, **które zostały dostarczone**,
+  są więc w skrzynce właściciela. Dostawa nie jest jednak gwarantowana (§9, T-025);
+  los tokenu po nieudanej wysyłce opisuje punkt „Błąd wysyłki a pula" poniżej.
+- **Błąd wysyłki a pula** (propozycja, część D-ML6). Przy **pewnym** błędzie wysyłki
+  (synchroniczna, jednoznaczna odmowa — mail na pewno nie wyszedł) świeżo wydany
+  token jest natychmiast unieważniany i zwalnia miejsce w puli — seria porażek
+  wysyłki nie może zapełnić puli niedostarczonymi tokenami (test w T-021: po N
+  pewnych porażkach kolejne żądanie nadal wydaje token). Przy **niepewnym** wyniku
+  (timeout, wynik nieznany — mail mógł wyjść) token pozostaje aktywny do TTL,
+  bo unieważnienie ryzykowałoby zabicie dostarczonego linku. Tradeoff opisany
+  uczciwie: niepewne wyniki mogą czasowo zajmować pulę aż do TTL; krótki TTL to
+  ogranicza. Plan nie składa żadnej gwarancji dostarczenia maila.
 - **Wyścig wydawania.** Dwa równoległe żądania przy prawie pełnej puli nie mogą
   przekroczyć N. Egzekwowanie transakcyjne po stronie bazy (konkretny mechanizm —
   np. blokada doradcza lub blokujący odczyt puli w transakcji — do wyboru przy
@@ -180,25 +193,29 @@ Nowe zmienne środowiskowe (nazwy do `.env.example`, bez wartości):
 ## 8. Bramka funkcji i produkcja (fail-closed)
 
 Zasada nadrzędna: **produkcja nigdy nie wystawia aktywnego logowania magic linkiem
-oparte o mock.** Konkretnie:
+opartego o mock ani bez limitera.** Mechanizm:
 
-- Funkcja jest **skonfigurowana** dopiero przy komplecie: `APP_AUTH_EMAIL`,
-  `APP_PUBLIC_URL` **i dostępnej implementacji wysyłki**. Bez kompletu endpointy
-  magic linku są nieaktywne (404), a reszta aplikacji działa bez zmian.
-- **Mock mailera i dev-podgląd linku istnieją wyłącznie w konfiguracji testowej
-  i deweloperskiej.** W konfiguracji produkcyjnej jedyną honorowaną implementacją
-  wysyłki jest realny adapter (T-025). Do czasu merge T-025 produkcja nie ma żadnej
-  implementacji wysyłki, więc funkcja pozostaje wyłączona nawet przy ustawionych
-  pozostałych zmiennych. Test gwardowy (T-021) potwierdza: konfiguracja produkcyjna
-  bez realnego adaptera → endpoint żądania linku nieaktywny, beany mocka i podglądu
-  nie istnieją.
-- **Aktywne publiczne endpointy dopiero po limiterze.** Realny adapter (T-025) ma
-  `depends_on` obejmujące T-024 (rate limiting), więc produkcyjne włączenie funkcji
-  jest niemożliwe przed wdrożeniem limitera. W fazie T-021..T-023 endpointy są w
-  produkcji martwe (brak implementacji wysyłki), a lokalnie/testowo działają na mocku.
-  Uwaga graniczna: endpoint confirm jest bramkowany tym samym warunkiem konfiguracji;
-  w hipotetycznej produkcji ze zmiennymi, ale bez adaptera, żądanie linku jest
-  nieaktywne, więc w bazie nie ma tokenów do zgadywania.
+- **Jedna wspólna bramka (`MagicLinkGate`), zdefiniowana w T-020, domyślnie
+  zamknięta.** Oba endpointy (żądanie i potwierdzenie) pytają wyłącznie tę bramkę.
+  Bramka jest otwarta tylko przy komplecie: `APP_AUTH_EMAIL`, `APP_PUBLIC_URL`
+  **oraz zgłoszonych zdolnościach (capabilities) `wysylka` i `limiter`**. Brak
+  dowolnego elementu → oba endpointy nieaktywne (404), reszta aplikacji działa
+  bez zmian.
+- **Zdolności zgłaszają późniejsze taski; T-022 nie zależy od portu mailera.**
+  T-020 definiuje bramkę i nazwy zdolności jako abstrakcyjne kontrybucje
+  konfiguracji — bez odwołania do typu portu, który powstaje dopiero w T-021.
+  W konfiguracji produkcyjnej zdolność `wysylka` zgłasza wyłącznie realny adapter
+  (T-025), a `limiter` — rate limiting (T-024). W konfiguracji testowej
+  i deweloperskiej zdolności zgłasza się **jawnie** — dzięki temu T-021 i T-022
+  implementuje się i testuje niezależnie i równolegle po samym T-020.
+- **Konsekwencje.** Do merge T-024 i T-025 bramka w produkcji pozostaje zamknięta
+  nawet przy ustawionych zmiennych — aktywne publiczne endpointy nie istnieją
+  przed limiterem i realnym adapterem. Usunięcie konfiguracji dostawcy (rollback)
+  zamyka po restarcie oba endpointy, w tym confirm. Testy wymagane: w T-022 —
+  konfiguracja produkcyjna + adres/URL + **istniejący ważny token w bazie** +
+  brak adaptera → confirm 404, token nietknięty; w T-021 — test gwardowy:
+  konfiguracja produkcyjna bez realnego adaptera → endpoint żądania nieaktywny,
+  beany mocka i dev-podglądu nie istnieją (I8).
 - Start aplikacji nadal wymaga hasła (`APP_AUTH_PASSWORD_HASH`) jak dotąd — epik tego
   nie zmienia do decyzji D-ML5.
 
@@ -222,9 +239,17 @@ oparte o mock.** Konkretnie:
   efekt jest bezpieczny-acz-niewygodny (link nie działa, użytkownik prosi o nowy).
 - **Brak open redirect.** Stała ścieżka `/login/confirm`, żadnych parametrów
   `redirect`/`next`.
-- **Session fixation.** Po udanym potwierdzeniu zmiana ID sesji
-  (`HttpServletRequest#changeSessionId`) przed zapisaniem `SecurityContext`;
-  kryterium z testem (ciasteczko przed ≠ po).
+- **Sesja: utworzenie vs rotacja (anty-fixation, nowa przeglądarka).** Dwa jawnie
+  rozdzielone przypadki: przy **istniejącej** `HttpSession` (np. anonimowej) —
+  rotacja ID (`HttpServletRequest#changeSessionId`) przed zapisaniem
+  `SecurityContext`; przy **braku** sesji (typowe dla nowej przeglądarki — publiczny
+  `GET /api/auth/session` dostarcza ciasteczko CSRF, ale **nie tworzy**
+  `HttpSession`, a samo `changeSessionId` sesji nie utworzy) — jawne utworzenie
+  nowej sesji, co samo w sobie jest odporne na fixation (nie istnieje wcześniejszy
+  ID do przejęcia). Sekwencja potwierdzenia jest zaprojektowana tak, by zużycie
+  tokenu nie mogło zakończyć się wyjątkiem braku sesji już po zużyciu. Oba
+  przypadki, wraz z poprawnym utrwaleniem `SecurityContext` strategią sesyjną
+  Spring Security, są kryteriami z testami w T-022.
 - **CSRF.** Oba POST-y w istniejącym mechanizmie double-submit; brak poprawnego
   `X-XSRF-TOKEN` → 403, token niezużyty.
 - **Enumeracja adresu.** Identyczna odpowiedź `202` (I6). Uczciwie: kanał czasowy
@@ -241,14 +266,29 @@ oparte o mock.** Konkretnie:
 - **Dostawa maila.** Niepowodzenie wysyłki nie zmienia odpowiedzi HTTP (I6); błąd
   logowany bez tokenu/URL/adresata (I5). Co najwyżej jedna ponowna próba w adapterze
   (T-025); brak kolejki i gwarancji dostarczenia — użytkownik ponawia z formularza.
+  Los tokenu po pewnej porażce (unieważnienie) i po wyniku niepewnym (zostaje do
+  TTL) opisuje §6; zachowanie identyczne w mocku i adapterze realnym.
+- **Dev-podgląd linku a I5.** Kanał podglądu (propozycja; dokładny kształt
+  potwierdza implementacja T-021): endpoint deweloperski zwracający ostatni link
+  przechwycony przez mock mailera, istniejący wyłącznie w konfiguracji
+  deweloperskiej. Wyjątek od I5 jest wąski i jawny: token i pełny URL mogą
+  wystąpić wyłącznie w treści maila oraz w tym kanale, i wyłącznie w konfiguracji
+  test/dev. W konfiguracji produkcyjnej kanał nie istnieje — test gwardowy (I8);
+  zakaz tokenów w logach produkcyjnych obowiązuje bezwzględnie.
 - **Rate limiting (T-024, progi do D-ML4).** Żądania linku: per IP (propozycja
   5/15 min, jawne 429) i per podany adres po normalizacji (propozycja 3/15 min,
   **cichy drop z odpowiedzią 202** — jawny 429 per adres byłby oracle enumeracji).
-  Potwierdzenia: per IP (propozycja 10/15 min, jawne 429). Własności anty-lockout:
-  przekroczenie limitów nie unieważnia wydanych tokenów, nie blokuje logowania hasłem
-  i wygasa z upływem okna. Liczniki w pamięci procesu (jedna instancja produkcyjna,
-  SCOPE §3); restart zeruje liczniki — akceptowalny tradeoff dla narzędzia jednej
-  osoby. Okna liczone z wstrzykiwanego `Clock`.
+  Potwierdzenia: per IP (propozycja 10/15 min, jawne 429). Własności anty-lockout —
+  ograniczone do tego, co kontrakt rzeczywiście daje: przekroczenie limitów **nie
+  unieważnia wydanych tokenów** i **nie blokuje logowania hasłem**, a limity wygasają
+  z upływem okna (brak trwałej blokady). Uczciwy tradeoff wspólnego IP: po
+  wyczerpaniu limitu confirm per IP również właściciel dzielący IP z napastnikiem
+  dostaje 429 do końca okna — token pozostaje wtedy niezużyty i ważny (w granicach
+  TTL), a logowanie hasłem działa; ponawiany atak może ten stan podtrzymywać przez
+  kolejne okna. Plan **nie** obiecuje nieblokowalności każdej ścieżki logowania.
+  Liczniki w pamięci procesu (jedna instancja produkcyjna, SCOPE §3); restart zeruje
+  liczniki — akceptowalny tradeoff dla narzędzia jednej osoby. Okna liczone
+  z wstrzykiwanego `Clock`.
 
 Do późniejszej weryfikacji (świadomie niezweryfikowane teraz): aktualne zalecenia
 branżowe dla magic linków (TTL, obsługa skanerów); cechy konkretnych dostawców e-mail —
@@ -262,11 +302,11 @@ mają `status: blocked` z bramką zakresu w sekcji „Blokada".
 
 | Task | Treść | depends_on | Dodatkowe blokady poza bramką zakresu |
 | --- | --- | --- | --- |
-| T-020 | tokeny: model, konfiguracja+Clock, pula, atomowe zużycie | T-006 | — |
+| T-020 | tokeny: model, bramka `MagicLinkGate`, konfiguracja+Clock, pula, atomowe zużycie | T-006 | — |
 | T-021 | żądanie linku: endpoint, dozwolony adres, port mailera, mock (test/dev) | T-020 | — |
-| T-022 | potwierdzenie: zużycie → sesja, anty-fixation | T-020 | — |
+| T-022 | potwierdzenie: zużycie → sesja (utworzenie/rotacja), anty-fixation | T-020 | — |
 | T-023 | frontend: formularz e-mail i strona potwierdzenia (fragment) | T-021, T-022 | — |
-| T-024 | rate limiting bez lockoutu | T-021, T-022 | — |
+| T-024 | rate limiting + zdolność `limiter` dla bramki | T-021, T-022 | — |
 | T-025 | adapter realnego dostawcy | T-021, T-024 | decyzje D-ML2, D-ML3 |
 | T-026 | włączenie na produkcji, decyzja o haśle | T-023, T-024, T-025 | decyzja D-ML5 + działające wdrożenie |
 
@@ -277,10 +317,11 @@ T-006 (done) ─▶ T-020 ─┬─▶ T-021 ─┬─▶ T-023 ─────�
                                   (T-021) ───┘
 ```
 
-- T-021 i T-022 idą **równolegle** po T-020: różne endpointy, wspólny serwis i bramka
-  konfiguracji zdefiniowane w T-020. T-022 nie zależy od T-021 i nie korzysta z portu
-  mailera — jego prerequisity (operacja zużycia, właściwości bramki, `Clock`)
-  dostarcza w całości T-020.
+- T-021 i T-022 idą **równolegle** po T-020: różne endpointy, wspólny serwis
+  i kompletna bramka `MagicLinkGate` zdefiniowane w T-020. T-022 nie zależy od
+  T-021 i nie korzysta z portu mailera — jego prerequisity (operacje serwisu,
+  bramka ze zdolnościami zgłaszanymi jawnie w konfiguracji testowej, `Clock`)
+  dostarcza w całości T-020 (§8).
 - Ścieżka bez żadnej decyzji zewnętrznej: T-020 → (T-021 ∥ T-022) → (T-023 ∥ T-024) —
   całość działa lokalnie na mocku, zero kosztów, zero sekretów.
 - T-025 dopiero po wyborze dostawcy (D-ML2/D-ML3); `depends_on` zawiera T-024, żeby
@@ -323,7 +364,7 @@ hashe o krótkim TTL — brak danych wymagających czyszczenia.
 | D-ML3 | Dostawca e-mail i miesięczny limit kosztu | brak rekomendacji w tej fazie (bez weryfikacji online nie przypisujemy dostawcom właściwości); do decyzji praca na mocku |
 | D-ML4 | TTL tokenu i progi rate limitingu | TTL 15 min; 5/15 min per IP, 3/15 min per adres, 10/15 min confirm per IP — wszystko defaulty odwracalne jedną zmianą konfiguracji |
 | D-ML5 | Los logowania hasłem po działającym magic linku | zostawić hasło jako ścieżkę awaryjną; nie usuwać fail-closed |
-| D-ML6 | Polityka puli tokenów: rozmiar N, zachowanie przy pełnej puli, unieważnianie pozostałych po udanym logowaniu | N=3; pełna pula → 202 bez wydania i bez maila; po sukcesie unieważnić pozostałe (§6) |
+| D-ML6 | Polityka puli tokenów: rozmiar N, zachowanie przy pełnej puli, unieważnianie pozostałych po udanym logowaniu, los tokenu po pewnym/niepewnym błędzie wysyłki | N=3; pełna pula → 202 bez wydania i bez maila; po sukcesie unieważnić pozostałe; pewna porażka wysyłki → unieważnienie tokenu, wynik niepewny → token zostaje do TTL (§6) |
 
 ## 13. Zmiany względem draftu planisty i dlaczego
 
@@ -372,3 +413,38 @@ zmianami merytorycznymi:
 Bez zmian pozostały m.in.: przepływ GET-nie-zużywa/POST-potwierdza, atomowe zużycie
 (I3), anty-fixation, CSRF, identyczna odpowiedź 202 (I6), port mailera z mockiem,
 brak wyboru dostawcy i brak kosztów w fazie developmentu, relacja do crasha Railway.
+
+### Zmiany po pierwszej rundzie review (PR #17)
+
+Niezależny reviewer zgłosił 5 ustaleń (2×P1, 3×P2); wszystkie uwzględnione:
+
+1. **(P1) Kompletna wspólna bramka z T-020.** Bramka `MagicLinkGate` przeniesiona
+   w całości do T-020: domyślnie zamknięta, otwierana kompletem zmiennych **i**
+   zdolności `wysylka`+`limiter` zgłaszanych jako abstrakcyjne kontrybucje
+   konfiguracji (prod: tylko realny adapter i limiter; test/dev: jawnie). Usuwa to
+   ukrytą zależność T-022 od portu z T-021 i lukę „confirm aktywny przed
+   T-024/T-025 albo po usunięciu konfiguracji dostawcy". Nowy wymagany test
+   w T-022: produkcja + adres/URL + istniejący ważny token + brak adaptera →
+   confirm 404, token nietknięty (§8).
+2. **(P1) Sesja w nowej przeglądarce.** `GET /api/auth/session` dostarcza ciasteczko
+   CSRF, ale nie tworzy `HttpSession`, a samo `changeSessionId` sesji nie utworzy —
+   literalna realizacja draftu mogła zakończyć potwierdzenie wyjątkiem po zużyciu
+   tokenu. Rozdzielono jawne utworzenie nowej sesji (brak `JSESSIONID`) od rotacji
+   istniejącej (sesja anonimowa); oba przypadki plus utrwalenie `SecurityContext`
+   właściwą strategią sesyjną są kryteriami z testami w T-022 (§9).
+3. **(P2) Ograniczony claim anty-lockout.** Cel i kryteria T-024 nie obiecują już
+   nieblokowalności „żadnej ścieżki": gwarancje zawężone do ważności wydanych
+   tokenów i niezależności logowania hasłem; tradeoff wspólnego IP (confirm 429
+   także dla właściciela do końca okna, podtrzymywalny przez ponawiany atak)
+   opisany jawnie; testy limitów żądań i potwierdzeń rozdzielone, z kryterium
+   „token niezużyty przy 429" (§9, T-024).
+4. **(P2) Pula a brak gwarancji dostawy.** Usunięto fałszywe uzasadnienie
+   „właściciel zawsze ma komplet linków w skrzynce". Dodano politykę losu tokenu:
+   pewna porażka wysyłki → natychmiastowe unieważnienie (seria porażek nie
+   zapełnia puli; test w T-021), wynik niepewny → token zostaje do TTL; tradeoff
+   opisany, wybór parametrów pozostaje przy właścicielu w D-ML6 (§6).
+5. **(P2) Kanał dev-podglądu jako jawny wyjątek.** Sprzeczność „zakres wymaga
+   podglądu, KA zakazuje tokenu w odpowiedziach" usunięta: kanał sprecyzowany
+   (dev-only endpoint z ostatnim linkiem z mocka), wyjątek od I5 wąski i jawny
+   (tylko mail + ten kanał, tylko test/dev), produkcja bez kanału z testem
+   gwardowym (§9, I5, T-021).

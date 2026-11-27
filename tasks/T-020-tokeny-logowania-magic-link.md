@@ -1,7 +1,7 @@
 ---
 id: T-020
 epic: E-ML
-title: Tokeny logowania — model, pula, atomowe zużycie i konfiguracja
+title: Tokeny logowania — model, pula, atomowe zużycie, bramka i konfiguracja
 status: blocked
 depends_on: [T-006]
 manual_review: true
@@ -10,7 +10,8 @@ manual_review: true
 ## Cel
 Fundament magic linku: jednorazowe, wygasające tokeny przechowywane wyłącznie jako
 hash, z ograniczoną pulą aktywnych tokenów, zużyciem atomowym także przy równoległych
-żądaniach oraz wspólną konfiguracją i zegarem dla pozostałych tasków epiku.
+żądaniach oraz wspólną, kompletną bramką funkcji, konfiguracją i zegarem dla
+pozostałych tasków epiku — tak, żeby T-021 i T-022 mogły powstać niezależnie.
 
 ## Zakres
 - migracja Flyway `V<kolejny>__login_token.sql` (tabela z `docs/EPIC-MAGIC-LINK.md` §4;
@@ -25,10 +26,19 @@ hash, z ograniczoną pulą aktywnych tokenów, zużyciem atomowym także przy r�
     w wyścigu
   - unieważnij pozostałe aktywne: operacja wołana po udanym logowaniu (użyje jej
     T-022; parametry polityki wg decyzji D-ML6, defaulty z `docs/EPIC-MAGIC-LINK.md` §6)
+  - unieważnij wskazany token: operacja zwalniająca miejsce w puli (użyje jej T-021
+    po pewnym błędzie wysyłki — polityka D-ML6)
 - właściwości konfiguracyjne epiku (`APP_AUTH_EMAIL`, `APP_PUBLIC_URL`,
   `APP_MAGIC_LINK_TTL_MINUTES` — TTL default 15 minut w kodzie jako odwracalna
-  propozycja, D-ML4) wraz z semantyką „funkcja skonfigurowana" dla bramek endpointów
-  w T-021/T-022; brak którejkolwiek zmiennej nie przeszkadza w starcie aplikacji
+  propozycja, D-ML4)
+- **wspólna bramka funkcji `MagicLinkGate`, domyślnie zamknięta** — jedyne źródło
+  decyzji „czy endpointy magic linku są aktywne" dla T-021 i T-022: otwarta tylko
+  przy komplecie zmiennych (`APP_AUTH_EMAIL`, `APP_PUBLIC_URL`) **i** zgłoszonych
+  zdolnościach `wysylka` oraz `limiter`; zdolności to abstrakcyjne kontrybucje
+  konfiguracji — bez odwołań do portu mailera, który powstaje dopiero w T-021;
+  w konfiguracji produkcyjnej zdolności zgłoszą dopiero realny adapter (T-025)
+  i limiter (T-024), w testowej/deweloperskiej zgłasza się je jawnie; brak
+  zmiennych lub zdolności nie przeszkadza w starcie aplikacji
 - wstrzykiwany `java.time.Clock` (bean) jako jedyne źródło czasu tokenów; testy
   sterują zegarem deterministycznie, bez sleepów
 - sprzątanie wierszy wygasłych/zużytych/unieważnionych przy wydawaniu nowego tokenu
@@ -49,6 +59,11 @@ hash, z ograniczoną pulą aktywnych tokenów, zużyciem atomowym także przy r�
       stanu istniejących tokenów
 - [ ] operacja „unieważnij pozostałe aktywne" unieważnia wszystkie aktywne tokeny
       poza wskazanym zużytym
+- [ ] operacja „unieważnij wskazany token" unieważnia dokładnie ten token i zwalnia
+      miejsce w puli
+- [ ] bramka `MagicLinkGate` jest domyślnie zamknięta; brak dowolnej zmiennej lub
+      dowolnej zdolności → zamknięta; komplet zmiennych i zdolności → otwarta
+      (pokryte testami wszystkie brakujące elementy z osobna)
 - [ ] token ani jego hash nie pojawiają się w logach serwisu (I5)
 - [ ] TTL i wygasanie liczone wyłącznie z wstrzykiwanego `Clock`; test przesuwa zegar
       zamiast czekać
@@ -58,9 +73,12 @@ hash, z ograniczoną pulą aktywnych tokenów, zużyciem atomowym także przy r�
   zużycie po TTL (przesunięcie `Clock`); wyścig dwóch wątków o jeden token (dokładnie
   jeden zwycięzca); wyścig równoległych wydań przy prawie pełnej puli (limit nigdy
   nie przekroczony); pełna pula → brak wydania; unieważnienie pozostałych po zużyciu;
-  sprzątanie starych wierszy; trwałość po niezależnym odczycie
+  unieważnienie wskazanego tokenu zwalnia miejsce w puli; sprzątanie starych wierszy;
+  trwałość po niezależnym odczycie
 - test jednostkowy: generacja tokenu (długość, base64url, źródło `SecureRandom`),
-  hashowanie SHA-256, semantyka „funkcja skonfigurowana" właściwości
+  hashowanie SHA-256; bramka `MagicLinkGate` — domyślnie zamknięta, każdy brakujący
+  element (zmienna, zdolność `wysylka`, zdolność `limiter`) z osobna trzyma ją
+  zamkniętą, komplet otwiera
 
 ## Blokada
 Bramka zakresu: epik E-ML nie jest częścią `SCOPE.md`, a `SCOPE.md` zmienia wyłącznie
