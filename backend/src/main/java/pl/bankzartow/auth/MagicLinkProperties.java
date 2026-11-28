@@ -1,5 +1,7 @@
 package pl.bankzartow.auth;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Optional;
@@ -52,6 +54,27 @@ public record MagicLinkProperties(
                 presentOrEmpty(publicUrl),
                 Duration.ofMinutes(ttlMinutes == null ? DEFAULT_TTL_MINUTES : ttlMinutes),
                 maxActiveTokens == null ? DEFAULT_MAX_ACTIVE_TOKENS : maxActiveTokens);
+    }
+
+    /**
+     * Returns {@code true} when {@code url} is an absolute HTTP or HTTPS URL
+     * with no query string, no fragment, and no userinfo (credentials). An
+     * optional path component is allowed: {@code https://host/app} is valid and
+     * the confirm link will be {@code https://host/app/login/confirm#token=...}.
+     * Any URL that fails this check keeps {@link MagicLinkGate} closed (fail-closed).
+     */
+    static boolean isValidPublicUrl(String url) {
+        if (url == null || url.isBlank()) return false;
+        try {
+            URI uri = new URI(url.trim());
+            return uri.isAbsolute()
+                    && ("http".equals(uri.getScheme()) || "https".equals(uri.getScheme()))
+                    && uri.getQuery() == null
+                    && uri.getFragment() == null
+                    && uri.getUserInfo() == null;
+        } catch (URISyntaxException e) {
+            return false;
+        }
     }
 
     private static Optional<String> presentOrEmpty(String raw) {

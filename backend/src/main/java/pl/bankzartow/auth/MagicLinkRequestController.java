@@ -36,6 +36,11 @@ class MagicLinkRequestController {
         MagicLinkRequest {
             email = email == null ? null : email.trim();
         }
+
+        @Override
+        public String toString() {
+            return "MagicLinkRequest[REDACTED]";
+        }
     }
 
     private final MagicLinkGate gate;

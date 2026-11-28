@@ -237,4 +237,42 @@ class MagicLinkRequestIT {
         assertThat(repository.count()).isZero();
         assertThat(mailer.sentMails()).isEmpty();
     }
+
+    @Test
+    void priorValidTokenRemainsActiveAfterSubsequentDefiniteSendFailure() throws Exception {
+        MagicLinkRequestTestClient http = new MagicLinkRequestTestClient(port);
+        http.bootstrapCsrf();
+
+        // First request: T1 issued and mailed
+        assertThat(http.postMagicLink(ALLOWED_EMAIL).statusCode()).isEqualTo(202);
+        assertThat(mailer.sentMails()).hasSize(1);
+        String firstToken = mailer.sentMails().get(0).link().substring(LINK_PREFIX.length());
+
+        // Second request: T2 issued and immediately invalidated by definite failure
+        mailer.respondWith(SendOutcome.DEFINITE_FAILURE);
+        assertThat(http.postMagicLink(ALLOWED_EMAIL).statusCode()).isEqualTo(202);
+
+        assertThat(repository.findByTokenHash(LoginTokenCodec.sha256Hex(firstToken)))
+                .as("the first token is still active after a subsequent definite send failure")
+                .isPresent();
+        assertThat(repository.countActive(clock.instant()))
+                .as("only the first token remains; the second was invalidated (D-ML6)")
+                .isEqualTo(1);
+    }
+
+    @Test
+    void mailerExceptionWithRecipientInMessageDoesNotLeakToLogs(CapturedOutput output)
+            throws Exception {
+        MagicLinkRequestTestClient http = new MagicLinkRequestTestClient(port);
+        http.bootstrapCsrf();
+        // The exception intentionally carries the recipient to verify no log leak (I5)
+        mailer.makeNextSendThrow(new RuntimeException("send failed for " + ALLOWED_EMAIL));
+
+        HttpResponse<String> response = http.postMagicLink(ALLOWED_EMAIL);
+
+        assertThat(response.statusCode()).as("exception is treated as UNCERTAIN, not an error").isEqualTo(202);
+        assertThat(output.getAll())
+                .as("RuntimeException message carrying the recipient must not appear in logs (I5)")
+                .doesNotContain(ALLOWED_EMAIL);
+    }
 }

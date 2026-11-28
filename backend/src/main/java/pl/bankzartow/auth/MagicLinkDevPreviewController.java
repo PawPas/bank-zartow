@@ -16,11 +16,16 @@ import org.springframework.web.server.ResponseStatusException;
  * mock has captured a mail.
  */
 @RestController
-@Profile("dev")
+@Profile("dev & !prod")
 public class MagicLinkDevPreviewController {
 
     /** The last captured confirm link, for manual local testing. */
     public record DevPreviewLink(String link) {
+
+        @Override
+        public String toString() {
+            return "DevPreviewLink[REDACTED]";
+        }
     }
 
     private final MockMagicLinkMailer mailer;

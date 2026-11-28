@@ -43,4 +43,12 @@ class MagicLinkRequestServiceTest {
                 .as("the token must travel in the URL fragment, never in a query parameter")
                 .doesNotContain("?");
     }
+
+    @Test
+    void buildsConfirmLinkWhenPublicUrlContainsPath() {
+        // APP_PUBLIC_URL with a path component is valid (gate allows it); the token
+        // path is appended to whatever path the base URL already has.
+        assertThat(MagicLinkRequestService.confirmLink("https://bank.example.test/app", "abc"))
+                .isEqualTo("https://bank.example.test/app/login/confirm#token=abc");
+    }
 }

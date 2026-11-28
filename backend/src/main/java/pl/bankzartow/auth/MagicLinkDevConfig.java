@@ -19,7 +19,7 @@ import org.springframework.context.annotation.Profile;
  * (invariant I8, guard-tested).
  */
 @Configuration
-@Profile("dev")
+@Profile("dev & !prod")
 public class MagicLinkDevConfig {
 
     @Bean

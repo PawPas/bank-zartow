@@ -17,7 +17,8 @@ public final class MagicLinkGate {
 
     public MagicLinkGate(MagicLinkProperties properties, Set<MagicLinkCapability> capabilities) {
         this.open = properties.email().isPresent()
-                && properties.publicUrl().isPresent()
+                && properties.publicUrl()
+                        .filter(MagicLinkProperties::isValidPublicUrl).isPresent()
                 && capabilities.contains(MagicLinkCapability.DELIVERY)
                 && capabilities.contains(MagicLinkCapability.LIMITER);
     }

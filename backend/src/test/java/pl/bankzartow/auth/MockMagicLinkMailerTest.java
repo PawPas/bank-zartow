@@ -1,7 +1,9 @@
 package pl.bankzartow.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import pl.bankzartow.auth.MagicLinkMailer.SendOutcome;
 
@@ -69,6 +71,37 @@ class MockMagicLinkMailerTest {
 
         assertThat(mailer.sentMails()).isEmpty();
         assertThat(mailer.send("owner@example.test", "link2")).isEqualTo(SendOutcome.SENT);
+        assertThat(mailer.sentMails()).hasSize(1);
+    }
+
+    @Test
+    void bufferIsBoundedAndOldestEntryIsEvictedWhenFull() {
+        for (int i = 0; i <= MockMagicLinkMailer.MAX_CAPTURED; i++) {
+            mailer.send("owner@example.test", "https://x/login/confirm#token=t" + i);
+        }
+
+        List<MockMagicLinkMailer.SentMail> captured = mailer.sentMails();
+        assertThat(captured).hasSize(MockMagicLinkMailer.MAX_CAPTURED);
+        assertThat(captured.get(captured.size() - 1).link())
+                .as("the last captured entry is the most recently sent mail")
+                .endsWith("#token=t" + MockMagicLinkMailer.MAX_CAPTURED);
+        assertThat(captured.get(0).link())
+                .as("the first (oldest) entry was evicted to make room")
+                .doesNotEndWith("#token=t0");
+    }
+
+    @Test
+    void makeNextSendThrowCausesNextSendToThrow() {
+        RuntimeException ex = new RuntimeException("simulated failure");
+        mailer.makeNextSendThrow(ex);
+
+        assertThatThrownBy(() -> mailer.send("owner@example.test", "https://x/login/confirm#token=t"))
+                .isSameAs(ex);
+        assertThat(mailer.sentMails()).as("no mail captured on throw").isEmpty();
+
+        assertThat(mailer.send("owner@example.test", "https://x/login/confirm#token=t"))
+                .as("subsequent send works normally after the one-shot throw")
+                .isEqualTo(SendOutcome.SENT);
         assertThat(mailer.sentMails()).hasSize(1);
     }
 }
