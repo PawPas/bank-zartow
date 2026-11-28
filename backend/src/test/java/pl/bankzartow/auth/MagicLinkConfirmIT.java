@@ -386,6 +386,108 @@ class MagicLinkConfirmIT {
     }
 
     @Test
+    void parallelConfirmationsOfDifferentTokensYieldExactlyOneSession() throws Exception {
+        String tokenA = service.issue().token();
+        String tokenB = service.issue().token();
+        MagicLinkConfirmHttpClient clientA = new MagicLinkConfirmHttpClient(port);
+        MagicLinkConfirmHttpClient clientB = new MagicLinkConfirmHttpClient(port);
+        clientA.bootstrapSession();
+        clientB.bootstrapSession();
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        List<Integer> statuses;
+        try {
+            List<Callable<Integer>> racers = List.of(
+                    () -> {
+                        barrier.await();
+                        return clientA.confirm(tokenA).statusCode();
+                    },
+                    () -> {
+                        barrier.await();
+                        return clientB.confirm(tokenB).statusCode();
+                    });
+            List<Future<Integer>> outcomes = pool.invokeAll(racers);
+            statuses = List.of(outcomes.get(0).get(), outcomes.get(1).get());
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(statuses).containsExactlyInAnyOrder(204, 401);
+        int authenticatedSessions = 0;
+        for (MagicLinkConfirmHttpClient client : List.of(clientA, clientB)) {
+            if (client.get("/api/auth/me").statusCode() == 200) {
+                authenticatedSessions++;
+            }
+        }
+        assertThat(authenticatedSessions)
+                .as("pool lock serializes different-token confirmations: exactly one session")
+                .isEqualTo(1);
+        Long usedRows = jdbc.queryForObject(
+                "select count(*) from login_token where used_at is not null", Long.class);
+        assertThat(usedRows)
+                .as("only the winning token is consumed")
+                .isEqualTo(1);
+    }
+
+    @Test
+    void csrfTokenIsRotatedAfterSuccessfulConfirmation() throws Exception {
+        String token = service.issue().token();
+        MagicLinkConfirmHttpClient http = new MagicLinkConfirmHttpClient(port);
+        http.bootstrapSession();
+        String csrfBefore = http.csrfToken();
+        assertThat(csrfBefore).as("precondition: CSRF cookie is set after bootstrap").isNotBlank();
+
+        assertThat(http.confirm(token).statusCode()).isEqualTo(204);
+
+        String csrfAfter = http.csrfToken();
+        assertThat(csrfAfter)
+                .as("CSRF token must be rotated after magic-link confirmation (CsrfAuthenticationStrategy)")
+                .isNotBlank()
+                .isNotEqualTo(csrfBefore);
+
+        // A request carrying the pre-confirmation CSRF header (now stale) with the
+        // new XSRF-TOKEN cookie is rejected — proving that the old value is dead.
+        HttpResponse<String> stale = http.confirmWithExplicitCsrf(
+                "nieistniejacy-token-AAAAAAAAAAAAAAAAAAAAAA", csrfBefore);
+        assertThat(stale.statusCode())
+                .as("stale CSRF header with current cookie yields 403, not 401 — CSRF check is enforced")
+                .isEqualTo(403);
+    }
+
+    @Test
+    void bootstrapConfirmLogoutBootstrapReloginFullLifecycle() throws Exception {
+        String token = service.issue().token();
+        MagicLinkConfirmHttpClient http = new MagicLinkConfirmHttpClient(port);
+
+        // 1. Bootstrap
+        http.bootstrapSession();
+
+        // 2. Magic-link confirm
+        assertThat(http.confirm(token).statusCode()).isEqualTo(204);
+        assertThat(http.get("/api/auth/me").statusCode()).isEqualTo(200);
+
+        // 3. SPA bootstraps after login to re-arm CSRF (same as password login flow in AuthIT)
+        http.bootstrapSession();
+
+        // 4. Logout
+        assertThat(http.logout().statusCode()).isEqualTo(204);
+        assertThat(http.get("/api/auth/me").statusCode())
+                .as("logged out session is gone")
+                .isEqualTo(401);
+
+        // 5. Fresh bootstrap — new CSRF cookie, no session
+        http.bootstrapSession();
+
+        // 6. Re-login with password on the same client (same cookie jar)
+        assertThat(http.login(AuthTestFixtures.USERNAME, AuthTestFixtures.PASSWORD).statusCode())
+                .isEqualTo(204);
+        assertThat(http.get("/api/auth/me").statusCode())
+                .as("password login after magic-link logout works")
+                .isEqualTo(200);
+    }
+
+    @Test
     void responsesCarrySameOriginReferrerPolicy() throws Exception {
         String token = service.issue().token();
         MagicLinkConfirmHttpClient http = new MagicLinkConfirmHttpClient(port);

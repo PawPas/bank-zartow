@@ -53,4 +53,5 @@ public class MagicLinkConfirmSecurityConfig {
                 .addFilterAfter(new CsrfCookieFilter(), UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
+
 }

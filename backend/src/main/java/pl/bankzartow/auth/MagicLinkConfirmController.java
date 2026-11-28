@@ -12,6 +12,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.context.SecurityContextHolderStrategy;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,14 +40,18 @@ import org.springframework.web.bind.annotation.RestController;
  * not create an {@code HttpSession}, and {@code changeSessionId} alone cannot.
  * Ordering this before consumption guarantees that consuming the token can
  * never be followed by a missing-session failure.</li>
- * <li><b>Atomic consumption.</b> Exactly one of two racing confirmations wins
- * (invariant I3); every refusal — unknown, used, expired or invalidated token —
- * yields one byte-for-byte identical generic {@code 401} {@link ProblemDetail}
- * so the cause cannot be distinguished. The plain token is never logged (I5).</li>
- * <li><b>After success</b> the remaining active tokens are invalidated (default
- * policy D-ML6, operation from T-020) and the {@link SecurityContext} of the
- * single account is persisted into the session with Spring Security's session
- * repository, so every subsequent {@code /api/**} request is authenticated.</li>
+ * <li><b>Atomic consumption + invalidation.</b>
+ * {@link LoginTokenService#consumeAndInvalidateOthers} acquires the pool lock
+ * and runs both writes in one transaction: exactly one of two racing
+ * confirmations of different tokens wins (invariant I3); if invalidation fails
+ * the whole transaction rolls back (no half-login). Every refusal yields one
+ * byte-for-byte identical generic {@code 401} {@link ProblemDetail} so the
+ * cause cannot be distinguished. The plain token is never logged (I5).</li>
+ * <li><b>After success</b> the CSRF token is rotated (matching form login
+ * behaviour: old cookie cleared, new random value set), then the
+ * {@link SecurityContext} of the single account is persisted into the session
+ * with Spring Security's session repository, so every subsequent
+ * {@code /api/**} request is authenticated.</li>
  * </ol>
  *
  * <p>CSRF is enforced by the dedicated filter chain for this endpoint
@@ -67,6 +74,8 @@ class MagicLinkConfirmController {
             SecurityContextHolder.getContextHolderStrategy();
     private final SecurityContextRepository securityContextRepository =
             new HttpSessionSecurityContextRepository();
+    private final CsrfTokenRepository csrfTokenRepository =
+            CookieCsrfTokenRepository.withHttpOnlyFalse();
 
     MagicLinkConfirmController(MagicLinkGate gate, LoginTokenService tokenService,
             AuthProperties authProperties) {
@@ -87,18 +96,33 @@ class MagicLinkConfirmController {
             request.getSession(true);
         }
         String token = body.token();
-        if (token == null || token.isBlank() || !tokenService.consume(token)) {
+        if (token == null || token.isBlank() || !tokenService.consumeAndInvalidateOthers(token)) {
             return unauthorized();
         }
-        tokenService.invalidateOtherActive();
 
         Authentication authentication = UsernamePasswordAuthenticationToken.authenticated(
                 authProperties.username(), null, List.of());
         SecurityContext context = contextHolderStrategy.createEmptyContext();
         context.setAuthentication(authentication);
         contextHolderStrategy.setContext(context);
+        rotateCsrf(request, response);
         securityContextRepository.saveContext(context, request, response);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Rotates the CSRF token after a successful confirmation, matching what
+     * form login does via {@code CsrfAuthenticationStrategy}. The old
+     * {@code XSRF-TOKEN} cookie is cleared and a new random value is written
+     * so the pre-confirmation header value is no longer accepted.
+     */
+    private void rotateCsrf(HttpServletRequest request, HttpServletResponse response) {
+        CsrfToken existing = csrfTokenRepository.loadToken(request);
+        if (existing != null) {
+            csrfTokenRepository.saveToken(null, request, response);
+            CsrfToken newToken = csrfTokenRepository.generateToken(request);
+            csrfTokenRepository.saveToken(newToken, request, response);
+        }
     }
 
     private static ResponseEntity<ProblemDetail> notFound() {

@@ -3,9 +3,11 @@ package pl.bankzartow.auth;
 import java.net.CookieManager;
 import java.net.HttpCookie;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Thin HTTP client for the magic-link confirmation tests (task T-022). Like
@@ -49,6 +51,25 @@ final class MagicLinkConfirmHttpClient {
     /** POSTs the confirmation JSON deliberately omitting the CSRF header. */
     HttpResponse<String> confirmWithoutCsrf(String token) throws Exception {
         return postConfirm(token, null);
+    }
+
+    /** POSTs the confirmation JSON with an explicitly supplied CSRF header value. */
+    HttpResponse<String> confirmWithExplicitCsrf(String token, String csrf) throws Exception {
+        return postConfirm(token, csrf);
+    }
+
+    /** POSTs the form login with the CSRF header, like the SPA does. */
+    HttpResponse<String> login(String username, String password) throws Exception {
+        String body = "username=" + URLEncoder.encode(username, StandardCharsets.UTF_8)
+                + "&password=" + URLEncoder.encode(password, StandardCharsets.UTF_8);
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + "/api/auth/login"))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(body));
+        String token = csrfToken();
+        if (token != null) {
+            builder.header("X-XSRF-TOKEN", token);
+        }
+        return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     HttpResponse<String> logout() throws Exception {

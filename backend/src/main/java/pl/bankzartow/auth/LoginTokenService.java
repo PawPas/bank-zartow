@@ -71,6 +71,28 @@ public class LoginTokenService {
     }
 
     /**
+     * Atomically consumes the token and invalidates all remaining active tokens
+     * in one serialized transaction (invariant I3 + policy D-ML6). The pool lock
+     * serializes concurrent confirmations: the first caller consumes its token and
+     * invalidates the rest; any other caller whose own token was just invalidated
+     * finds nothing to consume and returns {@code false}. Without the lock two
+     * confirmations of different tokens could both succeed.
+     *
+     * <p>If invalidation fails the whole transaction rolls back, reverting the
+     * consume UPDATE and leaving the token intact (no half-login).
+     */
+    @Transactional
+    public boolean consumeAndInvalidateOthers(String token) {
+        repository.acquirePoolLock(POOL_LOCK_KEY);
+        Instant now = clock.instant();
+        if (repository.consume(LoginTokenCodec.sha256Hex(token), now) != 1) {
+            return false;
+        }
+        repository.invalidateAllActive(now);
+        return true;
+    }
+
+    /**
      * Invalidates every remaining active token — called after a successful login
      * (T-022, default policy D-ML6). The just-consumed token is already inactive,
      * so it is not touched. Returns the number of invalidated tokens.
