@@ -2,7 +2,7 @@
 id: T-021
 epic: E-ML
 title: Żądanie magic linku — endpoint, dozwolony adres, port mailera z mockiem
-status: blocked
+status: todo
 depends_on: [T-020]
 manual_review: true
 ---
@@ -77,7 +77,7 @@ na produkcji bez realnej wysyłki.
 - test jednostkowy: normalizacja adresu, budowa linku (fragment, stała ścieżka)
 
 ## Blokada
-Bramka zakresu: epik E-ML nie jest częścią `SCOPE.md`, a `SCOPE.md` zmienia wyłącznie
-właściciel. Odblokowanie: właściciel akceptuje `docs/MAGIC-LINK-SCOPE-PROPOSAL.md`
-(decyzja D-ML1) i zmienia status tego taska na `todo`. Do tego czasu implementacji
-się nie rozpoczyna.
+Zniesiona 2026-11-28: właściciel zaakceptował `docs/MAGIC-LINK-SCOPE-PROPOSAL.md`
+(decyzja D-ML1, „Zatwierdzam" na Telegramie po merge PR #17) i zlecił mechaniczny
+zapis punktów A–C w `SCOPE.md` oraz odblokowanie T-020..T-024 (`blocked` → `todo`).
+Zapis decyzji: nagłówek `docs/MAGIC-LINK-SCOPE-PROPOSAL.md`.
