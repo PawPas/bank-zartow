@@ -1,6 +1,18 @@
 # Propozycja zmiany SCOPE.md dla epiku E-ML (do decyzji właściciela)
 
-Status: **propozycja — czeka na jawną akceptację właściciela (decyzja D-ML1).**
+Status: **zaakceptowana — decyzja D-ML1 podjęta przez właściciela.**
+
+> **Zapis decyzji D-ML1 (2026-11-28).** Właściciel na Telegramie, na pytanie
+> „Zatwierdzasz scalenie i rozszerzenie zakresu?", odpowiedział „Zatwierdzam"
+> (po squash merge PR #17 do `main`, commit `60f9d0f`). Zakres akceptacji jest
+> jawny i obejmuje decyzję D-ML1: przyjęcie punktów A–C poniżej do `SCOPE.md`
+> w brzmieniu dosłownym oraz odblokowanie tasków T-020..T-024 (`blocked` → `todo`).
+> Wpis do `SCOPE.md` i zmiany statusów wykonano mechanicznie na zlecenie
+> właściciela jako realizację jego decyzji — nie jest to autonomiczna zmiana
+> zakresu przez agenta. Decyzje D-ML2, D-ML3 i D-ML5 pozostają otwarte;
+> T-025 i T-026 pozostają `blocked`. D-ML4 i D-ML6 pozostają przy odwracalnych
+> domyślnych propozycjach z `docs/EPIC-MAGIC-LINK.md` §12 (nie są to decyzje
+> właściciela) i nie blokują T-020.
 
 `SCOPE.md` i kryteria akceptacji zmienia wyłącznie właściciel (`AGENTS.md`,
 `SCOPE.md` §8). Ten dokument niczego w `SCOPE.md` nie zmienia — zawiera gotowy,

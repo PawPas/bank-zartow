@@ -2,7 +2,7 @@
 id: T-024
 epic: E-ML
 title: Rate limiting magic linku bez trwałego lockoutu właściciela
-status: blocked
+status: todo
 depends_on: [T-021, T-022]
 manual_review: true
 ---
@@ -63,7 +63,7 @@ wspólnym IP (opisanym w zakresie) — task nie obiecuje nieblokowalności każd
 - test jednostkowy: logika licznika i okna
 
 ## Blokada
-Bramka zakresu: epik E-ML nie jest częścią `SCOPE.md`, a `SCOPE.md` zmienia wyłącznie
-właściciel. Odblokowanie: właściciel akceptuje `docs/MAGIC-LINK-SCOPE-PROPOSAL.md`
-(decyzja D-ML1) i zmienia status tego taska na `todo`. Do tego czasu implementacji
-się nie rozpoczyna.
+Zniesiona 2026-11-28: właściciel zaakceptował `docs/MAGIC-LINK-SCOPE-PROPOSAL.md`
+(decyzja D-ML1, „Zatwierdzam" na Telegramie po merge PR #17) i zlecił mechaniczny
+zapis punktów A–C w `SCOPE.md` oraz odblokowanie T-020..T-024 (`blocked` → `todo`).
+Zapis decyzji: nagłówek `docs/MAGIC-LINK-SCOPE-PROPOSAL.md`.

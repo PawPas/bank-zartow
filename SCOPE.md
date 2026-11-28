@@ -1,7 +1,8 @@
 # SCOPE: Bank żartów (pilot)
 
 Status: **do zatwierdzenia** (bramka 1)
-Wersja: 0.4, 2026-11-02 (dodano epik E-RX jako rozszerzenie E2, autoryzowane przez właściciela)
+Wersja: 0.5, 2026-11-28 (dodano epik E-ML wg zaakceptowanej propozycji `docs/MAGIC-LINK-SCOPE-PROPOSAL.md`; decyzja właściciela D-ML1 z 2026-11-28, zapis wykonany mechanicznie na jego zlecenie)
+Wersja poprzednia: 0.4, 2026-11-02 (dodano epik E-RX jako rozszerzenie E2, autoryzowane przez właściciela)
 
 ## 1. Cel
 
@@ -121,6 +122,53 @@ Kryteria akceptacji:
 - testy obejmują anulowanie, timeout, limity i błędy, a ścieżka testowa jest niezależna od realnego dostawcy (mock/zaślepka)
 - realny adapter dostawcy powstaje dopiero po rekomendacji `go` ze spike'u i osobnym zatwierdzeniu właściciela; brak automatycznego fallbacku na płatne API
 
+### Epik E-ML: logowanie magic linkiem (rozszerzenie decyzji D2)
+
+Logowanie jedynego użytkownika bez hasła na telefonie: formularz z adresem e-mail,
+mail z jednorazowym linkiem, jawne potwierdzenie i ta sama sesja co przy logowaniu
+hasłem. Projekt epiku opisuje `docs/EPIC-MAGIC-LINK.md`; realizują go taski
+T-020..T-026 (wszystkie `manual_review: true`).
+
+Zakres:
+- nadal jedno konto i jeden skonfigurowany adres e-mail (zmienna środowiskowa), bez
+  rejestracji i bez wielu użytkowników
+- jednorazowy, wygasający token przechowywany wyłącznie jako hash; otwarcie linku
+  (GET) nie zużywa tokenu, zużywa go dopiero jawne potwierdzenie (POST), atomowo
+  także w wyścigu
+- ograniczona pula aktywnych tokenów; żądania anonimowe nie unieważniają wydanego
+  ważnego linku (ochrona przed denial-of-login)
+- po potwierdzeniu istniejący mechanizm sesji i CSRF, z ochroną przed session fixation
+- rate limiting żądań i potwierdzeń bez trwałej blokady właściciela
+- port wysyłki maila z implementacją mock dla testów i pracy lokalnej; realny
+  dostawca dopiero po osobnej decyzji właściciela
+- fail-closed: wspólna, domyślnie zamknięta bramka obu endpointów; bez pełnej
+  gotowości (adres, publiczny URL, a w produkcji realna wysyłka i limiter)
+  funkcja — łącznie z potwierdzaniem — jest wyłączona, a aplikacja działa jak
+  dotąd; mock wysyłki nigdy nie działa w konfiguracji produkcyjnej
+
+Poza zakresem:
+- rejestracja, wielu użytkowników, role (§5 bez zmian)
+- wybór i konfiguracja dostawcy e-mail, zakładanie kont/domen, koszty — jawne decyzje
+  właściciela
+- usunięcie logowania hasłem lub osłabienie fail-closed startu aplikacji — osobna
+  decyzja właściciela podejmowana dopiero po działającym magic linku na produkcji
+- naprawa obecnego stanu wdrożenia Railway (niezależna od epiku)
+- trwałe sesje w bazie, „zapamiętaj mnie", SMS, TOTP
+
+Kryteria akceptacji:
+- logowanie magic linkiem tworzy tę samą sesję co logowanie hasłem; token jest
+  jednorazowy, ograniczony czasowo, a w bazie istnieje wyłącznie jego hash
+- otwarcie linku bez potwierdzenia nie zużywa tokenu; dwa równoległe potwierdzenia
+  tego samego tokenu dają dokładnie jedną sesję
+- odpowiedź na żądanie linku nie zdradza, czy podany adres jest dozwolony
+- anonimowe żądania nie unieważniają wydanego ważnego linku ani nie blokują
+  logowania hasłem; limity wygasają samoczynnie
+- bez pełnej gotowości oba endpointy funkcji są wyłączone (także potwierdzanie,
+  również przy istniejącym ważnym tokenie), a mock wysyłki nie istnieje
+  w konfiguracji produkcyjnej (potwierdzone testami)
+- realny dostawca e-mail podłączany wyłącznie po decyzji właściciela; testy działają
+  na mocku, sekrety poza repozytorium
+
 ## 5. Poza zakresem
 
 - wielu użytkowników, role, rejestracja
@@ -136,10 +184,24 @@ Epik 0 → 1 → 2 → 3. Po epikach 1 i 2 narzędzie jest już użyteczne, epik
 
 Epik E-RX rozszerza E2 i wchodzi dopiero po nim. Wyjątkiem są dwa taski, które są niezależne od dostawcy i od modelu danych i mogą ruszyć wcześniej, równolegle do bieżących prac: spike techniczno-prawny (go/no-go) oraz reaktywny rdzeń na implementacji mock. Pozostałe taski E-RX czekają na brakujące przesłanki: endpoint na model żartu z E1, UI na edytor z E2, a realny adapter na decyzję `go` i zgodę właściciela. Dopisanie tych tasków nie autoryzuje rozpoczęcia implementacji E1 ani E2 — kolejność epików pozostaje bez zmian. Spike nie zależy od działającego wdrożenia na Railway.
 
+Epik E-ML jest niezależny od epików produktowych (E1–E3, E-RX): dotyczy pakietu
+`auth` i ekranu logowania, nie modelu żartów ani edytora. Może być realizowany
+równolegle z bieżącymi pracami bez zmiany kolejności epików produktowych.
+Kolejność wewnątrz epiku: T-020, następnie T-021 i T-022 równolegle, potem T-023
+i T-024, T-025 po wyborze dostawcy e-mail, T-026 na końcu — po zielonym realnym
+wdrożeniu i decyzjach właściciela. Dopisanie tasków E-ML nie autoryzuje żadnych
+zmian w pozostałych epikach.
+
 ## 7. Decyzje do podjęcia przy zatwierdzeniu
 
 - **D1. Format plansz.** Rozstrzygnięte: 1080 × 1350 px (pion 4:5).
-- **D2. Logowanie.** Rozstrzygnięte: aplikacja wystawiona na Railway, jedno konto z hasłem ustawianym w zmiennych środowiskowych.
+- **D2. Logowanie.** Rozstrzygnięte z rozszerzeniem: jedno konto z hasłem ustawianym
+  w zmiennych środowiskowych (bez zmian) oraz — po wdrożeniu epiku E-ML — dodatkowe
+  logowanie magic linkiem na jeden skonfigurowany adres e-mail właściciela, domyślnie
+  wyłączone do czasu pełnej konfiguracji produkcyjnej. Los logowania hasłem po
+  działającym magic linku to osobna decyzja właściciela (D-ML5 w
+  `docs/EPIC-MAGIC-LINK.md`); do jej podjęcia hasło i fail-closed start pozostają
+  bez zmian.
 - **D3. Dostawca AI dla przycisku w edytorze.** Do wskazania, wraz z miesięcznym limitem kosztu.
 - **D4. Wygląd szablonów.** Rozstrzygnięte: jasne tło, jeden krój pisma, bez grafik i bez wariantu ciemnego w pilocie.
 
