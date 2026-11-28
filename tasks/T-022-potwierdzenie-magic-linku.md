@@ -2,7 +2,7 @@
 id: T-022
 epic: E-ML
 title: Potwierdzenie magic linku — atomowe zużycie i bezpieczna sesja
-status: todo
+status: done
 depends_on: [T-020]
 manual_review: true
 ---
