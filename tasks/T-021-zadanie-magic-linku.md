@@ -2,7 +2,7 @@
 id: T-021
 epic: E-ML
 title: Żądanie magic linku — endpoint, dozwolony adres, port mailera z mockiem
-status: todo
+status: done
 depends_on: [T-020]
 manual_review: true
 ---
