@@ -17,11 +17,15 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +39,8 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import pl.bankzartow.MutableClock;
 import pl.bankzartow.TestcontainersConfiguration;
 
@@ -72,6 +78,9 @@ class LoginTokenServiceIT {
 
     @Autowired
     private DataSource dataSource;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -346,6 +355,102 @@ class LoginTokenServiceIT {
         assertThat(lockFree)
                 .as("the pool lock is transaction-scoped: released when the issuing transactions ended")
                 .isTrue();
+    }
+
+    /**
+     * Closes the remaining lock-lifetime gap from review round 1: the pool lock
+     * must be held by the very transaction that issues the token, from
+     * acquisition until commit — not taken and dropped before count/insert.
+     *
+     * <p>The test wraps the real service proxy call in its own outer transaction
+     * ({@code TransactionTemplate}, propagation REQUIRED, so {@code issue()}
+     * joins it — proven by {@code txid_current()} being identical before and
+     * after the call) and halts that transaction after {@code issue()} returned
+     * but before the callback returns, i.e. before commit. While it is halted,
+     * a probe on a <b>different backend</b> (distinct {@code pg_backend_pid})
+     * must fail to take the lock, and {@code pg_locks} must show the lock
+     * granted exactly to the issuing transaction's backend. After commit the
+     * lock must be free. No production hook is involved — only the public
+     * service API inside an outer transaction.
+     */
+    @Test
+    void holdsThePoolLockInsideTheIssuingTransactionUntilCommit() throws Exception {
+        CountDownLatch issuedInsideOpenTransaction = new CountDownLatch(1);
+        CountDownLatch releaseTransaction = new CountDownLatch(1);
+        AtomicLong issuingBackendPid = new AtomicLong();
+        AtomicLong txidBeforeIssue = new AtomicLong();
+        AtomicLong txidAfterIssue = new AtomicLong();
+
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            TransactionTemplate outerTransaction = new TransactionTemplate(transactionManager);
+            Future<LoginTokenIssueResult> issuing = worker.submit(() -> outerTransaction.execute(status -> {
+                // These queries run on the transaction-bound connection, so the
+                // captured PID/txid describe the very transaction issue() joins.
+                issuingBackendPid.set(queryLong("select pg_backend_pid()"));
+                txidBeforeIssue.set(queryLong("select txid_current()"));
+                LoginTokenIssueResult result = service.issue();
+                txidAfterIssue.set(queryLong("select txid_current()"));
+                issuedInsideOpenTransaction.countDown();
+                try {
+                    if (!releaseTransaction.await(10, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("release latch timed out");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                }
+                return result; // only now does the outer transaction commit
+            }));
+
+            assertThat(issuedInsideOpenTransaction.await(10, TimeUnit.SECONDS))
+                    .as("issue() completed inside the still-open transaction")
+                    .isTrue();
+
+            // Probe from another backend while the issuing transaction is open.
+            Map<String, Object> probe = jdbc.queryForMap(
+                    "select pg_backend_pid() as pid, pg_try_advisory_xact_lock("
+                            + LoginTokenService.POOL_LOCK_KEY + ") as acquired");
+            assertThat(((Number) probe.get("pid")).longValue())
+                    .as("the probe runs on a different backend than the issuing transaction")
+                    .isNotEqualTo(issuingBackendPid.get());
+            assertThat((Boolean) probe.get("acquired"))
+                    .as("the pool lock is still held while the issuing transaction is open")
+                    .isFalse();
+            Long holderPid = jdbc.queryForObject(
+                    "select pid from pg_locks where locktype = 'advisory'"
+                            + " and cast(classid as bigint) = ? and cast(objid as bigint) = ?"
+                            + " and granted",
+                    Long.class,
+                    LoginTokenService.POOL_LOCK_KEY >>> 32,
+                    LoginTokenService.POOL_LOCK_KEY & 0xffffffffL);
+            assertThat(holderPid)
+                    .as("the lock is granted exactly to the issuing transaction's backend,"
+                            + " not to any test fixture")
+                    .isEqualTo(issuingBackendPid.get());
+
+            releaseTransaction.countDown();
+            LoginTokenIssueResult result = issuing.get(10, TimeUnit.SECONDS);
+            assertThat(result.isIssued()).isTrue();
+            assertThat(txidAfterIssue.get())
+                    .as("issue() joined the outer transaction (same txid before and after)")
+                    .isEqualTo(txidBeforeIssue.get());
+
+            Boolean freeAfterCommit = jdbc.queryForObject(
+                    "select pg_try_advisory_xact_lock(" + LoginTokenService.POOL_LOCK_KEY + ")",
+                    Boolean.class);
+            assertThat(freeAfterCommit)
+                    .as("the lock is released exactly with the issuing transaction's end")
+                    .isTrue();
+            assertThat(countRows()).isEqualTo(1);
+        } finally {
+            worker.shutdownNow();
+        }
+    }
+
+    private long queryLong(String sql) {
+        Long value = jdbc.queryForObject(sql, Long.class);
+        return value == null ? -1 : value;
     }
 
     /**
