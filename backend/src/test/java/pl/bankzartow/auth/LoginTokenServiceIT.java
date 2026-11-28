@@ -1,6 +1,7 @@
 package pl.bankzartow.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -8,6 +9,8 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.sql.Connection;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -19,6 +22,7 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -65,6 +69,9 @@ class LoginTokenServiceIT {
 
     @Autowired
     private MutableClock clock;
+
+    @Autowired
+    private DataSource dataSource;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -270,6 +277,103 @@ class LoginTokenServiceIT {
         assertThat(countRows()).isEqualTo(3);
     }
 
+    /**
+     * The deterministic near-full-pool race required by T-020: with N−1 active
+     * tokens, three issuance transactions are made to genuinely overlap — the
+     * test holds the pool advisory lock in its own transaction, submits the
+     * racers, and waits until {@code pg_locks} reports all three of them
+     * blocked on that lock (verifiable overlap, not a sleep). Releasing the
+     * lock lets them proceed: exactly one issues the last slot, the rest get
+     * "not issued", and the earlier tokens remain untouched and usable. The
+     * lock must also be transaction-scoped: free again once the racers commit.
+     */
+    @Test
+    void exactlyOneIssueWinsFromNearlyFullPoolWithOverlappingTransactions() throws Exception {
+        String first = service.issue().token();
+        String second = service.issue().token();
+        assertThat(countActiveRows()).as("pool starts at N-1").isEqualTo(2);
+
+        int racers = 3;
+        ExecutorService pool = Executors.newFixedThreadPool(racers);
+        List<Future<LoginTokenIssueResult>> outcomes = new ArrayList<>();
+        try {
+            try (Connection holder = dataSource.getConnection()) {
+                holder.setAutoCommit(false);
+                try (Statement statement = holder.createStatement()) {
+                    statement.execute(
+                            "select pg_advisory_xact_lock(" + LoginTokenService.POOL_LOCK_KEY + ")");
+                }
+                try {
+                    for (int i = 0; i < racers; i++) {
+                        outcomes.add(pool.submit(service::issue));
+                    }
+                    awaitAdvisoryLockWaiters(racers);
+                    for (Future<LoginTokenIssueResult> outcome : outcomes) {
+                        assertThat(outcome.isDone())
+                                .as("every issuance transaction is in flight, blocked on the pool lock")
+                                .isFalse();
+                    }
+                } finally {
+                    holder.rollback();
+                }
+            }
+
+            int issued = 0;
+            for (Future<LoginTokenIssueResult> outcome : outcomes) {
+                if (outcome.get().isIssued()) {
+                    issued++;
+                }
+            }
+            assertThat(issued).as("exactly one racer takes the last pool slot").isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        Long touched = jdbc.queryForObject(
+                "select count(*) from login_token"
+                        + " where used_at is not null or invalidated_at is not null",
+                Long.class);
+        assertThat(touched).as("the race touches no earlier token").isZero();
+        assertThat(countActiveRows()).isEqualTo(3);
+        assertThat(service.consume(first))
+                .as("a token issued before the race is still valid")
+                .isTrue();
+        assertThat(service.consume(second)).isTrue();
+
+        Boolean lockFree = jdbc.queryForObject(
+                "select pg_try_advisory_xact_lock(" + LoginTokenService.POOL_LOCK_KEY + ")",
+                Boolean.class);
+        assertThat(lockFree)
+                .as("the pool lock is transaction-scoped: released when the issuing transactions ended")
+                .isTrue();
+    }
+
+    /**
+     * Waits until {@code pg_locks} shows the expected number of transactions
+     * blocked on the pool advisory lock. This is state detection, not timing:
+     * the loop polls a fact in the database and fails loudly on timeout — which
+     * is exactly what happens if {@link LoginTokenService#issue()} stops taking
+     * the lock (the racers then never wait and the overlap cannot be proven).
+     */
+    private void awaitAdvisoryLockWaiters(int expected) throws InterruptedException {
+        long classid = LoginTokenService.POOL_LOCK_KEY >>> 32;
+        long objid = LoginTokenService.POOL_LOCK_KEY & 0xffffffffL;
+        long deadlineNanos = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+        while (System.nanoTime() < deadlineNanos) {
+            Long waiters = jdbc.queryForObject(
+                    "select count(*) from pg_locks where locktype = 'advisory'"
+                            + " and cast(classid as bigint) = ? and cast(objid as bigint) = ?"
+                            + " and not granted",
+                    Long.class, classid, objid);
+            if (waiters != null && waiters == expected) {
+                return;
+            }
+            Thread.sleep(20);
+        }
+        fail("timed out waiting for " + expected + " transactions blocked on the pool advisory lock"
+                + " — issue() does not appear to acquire pg_advisory_xact_lock");
+    }
+
     @Test
     void invalidatesOtherActiveTokensAfterSuccessfulConsumption() {
         String winner = service.issue().token();
@@ -294,18 +398,36 @@ class LoginTokenServiceIT {
     }
 
     @Test
-    void invalidatingASingleTokenFreesItsPoolSlot() {
-        service.issue();
-        String sacrificed = service.issue().token();
+    void invalidatesExactlyTheTargetTokenLeavingOthersUntouched() throws Exception {
+        String first = service.issue().token();
+        String target = service.issue().token();
         service.issue();
         assertThat(service.issue().isIssued()).as("pool starts full").isFalse();
 
-        assertThat(service.invalidate(sacrificed)).isTrue();
+        assertThat(service.invalidate(target)).isTrue();
 
+        // Checked before any cleanup can run (no issue() in between): exactly the
+        // target row carries invalidated_at, the other two rows are untouched.
+        OffsetDateTime targetInvalidatedAt = jdbc.queryForObject(
+                "select invalidated_at from login_token where token_hash = ?",
+                OffsetDateTime.class, sha256Hex(target));
+        assertThat(targetInvalidatedAt).isNotNull();
+        assertThat(targetInvalidatedAt.toInstant()).isEqualTo(BASE);
+        Long touchedOthers = jdbc.queryForObject(
+                "select count(*) from login_token where token_hash <> ?"
+                        + " and (used_at is not null or invalidated_at is not null)",
+                Long.class, sha256Hex(target));
+        assertThat(touchedOthers).as("no token other than the target is touched").isZero();
+
+        assertThat(service.consume(target))
+                .as("the invalidated target is refused on consumption")
+                .isFalse();
         assertThat(service.issue().isIssued())
-                .as("invalidating one token frees exactly one slot")
+                .as("invalidating the target frees exactly one slot")
                 .isTrue();
-        assertThat(countActiveRows()).isEqualTo(3);
+        assertThat(service.consume(first))
+                .as("an untouched earlier token still works")
+                .isTrue();
     }
 
     @Test
@@ -322,22 +444,65 @@ class LoginTokenServiceIT {
                 .isTrue();
     }
 
+    /**
+     * Cleanup of used and invalidated rows must be independent of expiry: the
+     * clock never moves in this test, so every row is still well within its TTL
+     * when the cleanup runs. A cleanup that only deleted expired rows would
+     * leave the table at four rows and fail here. The one still-active token is
+     * the control row that must survive.
+     */
     @Test
-    void cleansUpSpentRowsWhenIssuing() {
+    void cleansUpUsedAndInvalidatedRowsBeforeTheirTtlKeepingTheActiveOne() throws Exception {
         String used = service.issue().token();
-        assertThat(service.consume(used)).isTrue();
         String invalidated = service.issue().token();
+        String control = service.issue().token();
+        assertThat(service.consume(used)).isTrue();
         assertThat(service.invalidate(invalidated)).isTrue();
-        service.issue(); // stays active until the clock moves past its TTL
+        assertThat(countRows())
+                .as("consume/invalidate alone leave the spent rows in place — "
+                        + "the setup has not cleaned them up early")
+                .isEqualTo(3);
+
+        LoginTokenIssueResult fresh = service.issue();
+
+        assertThat(fresh.isIssued())
+                .as("only the control token was active, so the pool had room")
+                .isTrue();
+        assertThat(countRows()).isEqualTo(2);
+        List<String> remainingHashes =
+                jdbc.queryForList("select token_hash from login_token", String.class);
+        assertThat(remainingHashes).containsExactlyInAnyOrder(
+                sha256Hex(control), sha256Hex(fresh.token()));
+    }
+
+    @Test
+    void cleansUpExpiredRowsWhenIssuing() throws Exception {
+        service.issue();
         clock.advance(Duration.ofMinutes(16));
 
         LoginTokenIssueResult fresh = service.issue();
 
         assertThat(fresh.isIssued()).isTrue();
         assertThat(countRows())
-                .as("used, invalidated and expired rows are gone; only the fresh token remains")
+                .as("the expired row is gone; only the fresh token remains")
                 .isEqualTo(1);
-        assertThat(countActiveRows()).isEqualTo(1);
+        String remainingHash =
+                jdbc.queryForObject("select token_hash from login_token", String.class);
+        assertThat(remainingHash).isEqualTo(sha256Hex(fresh.token()));
+    }
+
+    @Test
+    void refusesConsumeExactlyAtTheExpiryInstant() {
+        String token = service.issue().token();
+
+        // Usability requires now strictly before expires_at; at the boundary the
+        // token is already expired.
+        clock.advance(Duration.ofMinutes(15));
+
+        assertThat(service.consume(token)).isFalse();
+        OffsetDateTime usedAt = jdbc.queryForObject(
+                "select used_at from login_token", OffsetDateTime.class);
+        assertThat(usedAt).isNull();
     }
 
     @Test
