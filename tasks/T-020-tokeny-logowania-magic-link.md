@@ -2,7 +2,7 @@
 id: T-020
 epic: E-ML
 title: Tokeny logowania — model, pula, atomowe zużycie, bramka i konfiguracja
-status: todo
+status: done
 depends_on: [T-006]
 manual_review: true
 ---
