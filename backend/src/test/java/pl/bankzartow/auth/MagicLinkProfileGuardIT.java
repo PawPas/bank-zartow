@@ -19,19 +19,21 @@ import pl.bankzartow.TestcontainersConfiguration;
 /**
  * Profile-configuration matrix for the magic-link feature (task T-021, P1).
  * The {@code dev & !prod} expression on {@link MagicLinkDevConfig} and
- * {@link MagicLinkDevPreviewController} must keep the mock beans and dev
- * capabilities absent in every profile combination that includes {@code prod}.
+ * {@link MagicLinkDevPreviewController} must keep the mock beans, capabilities
+ * and dev-preview absent in every profile combination that includes {@code prod}
+ * or that simply does not activate {@code dev}.
  *
- * <p>Covered here (each as a nested Spring context):
+ * <p>Each nested class is a separate Spring context. Covered here:
  * <ul>
  *   <li>{@code prod} — explicit production profile
  *   <li>{@code test} — custom profile unrelated to dev
  *   <li>{@code dev,prod} — the critical combined case the {@code !prod}
  *       exclusion is designed to block
+ *   <li>{@code prod,test} — a further mixed combination that must also stay off
  * </ul>
  *
  * <p>The no-profile (default production-like) case is covered by
- * {@link MagicLinkProductionGuardIT}; the {@code dev} case is covered by
+ * {@link MagicLinkProductionGuardIT}; the pure {@code dev} case by
  * {@link MagicLinkDevPreviewIT}.
  */
 class MagicLinkProfileGuardIT {
@@ -59,12 +61,15 @@ class MagicLinkProfileGuardIT {
         private LoginTokenRepository repository;
 
         @Test
-        void prodProfileHasNoMockBeansAndGateIsClosed() {
+        void prodProfileHasNoMockBeansNoCapabilitiesAndGateIsClosed() {
             assertThat(context.getBeanNamesForType(MagicLinkMailer.class))
                     .as("no mailer bean in prod profile")
                     .isEmpty();
             assertThat(context.getBeanNamesForType(MockMagicLinkMailer.class))
                     .as("mock mailer must not exist under prod profile (I8)")
+                    .isEmpty();
+            assertThat(context.getBeanNamesForType(MagicLinkCapability.class))
+                    .as("no capability beans declared under prod profile")
                     .isEmpty();
             assertThat(context.getBeanNamesForType(MagicLinkDevPreviewController.class))
                     .as("dev-preview must not exist under prod profile (I8)")
@@ -75,12 +80,18 @@ class MagicLinkProfileGuardIT {
         }
 
         @Test
-        void prodProfileRequestEndpointReturns404() throws Exception {
+        void prodProfileRequestEndpointReturns404AndDevPreviewIsAbsent() throws Exception {
             MagicLinkRequestTestClient http = new MagicLinkRequestTestClient(port);
             http.bootstrapCsrf();
 
             assertThat(http.postMagicLink("owner@example.test").statusCode()).isEqualTo(404);
             assertThat(repository.count()).isZero();
+
+            HttpResponse<String> preview = http.get("/api/auth/magic-link/dev-preview");
+            assertThat(preview.statusCode())
+                    .as("dev-preview path is absent under prod profile")
+                    .isEqualTo(404);
+            assertThat(preview.body()).doesNotContain("#token=");
         }
     }
 
@@ -107,12 +118,15 @@ class MagicLinkProfileGuardIT {
         private LoginTokenRepository repository;
 
         @Test
-        void testProfileHasNoMockBeansAndGateIsClosed() {
+        void testProfileHasNoMockBeansNoCapabilitiesAndGateIsClosed() {
             assertThat(context.getBeanNamesForType(MagicLinkMailer.class))
                     .as("no mailer bean in test profile")
                     .isEmpty();
             assertThat(context.getBeanNamesForType(MockMagicLinkMailer.class))
                     .as("mock mailer must not exist under test profile (I8)")
+                    .isEmpty();
+            assertThat(context.getBeanNamesForType(MagicLinkCapability.class))
+                    .as("no capability beans declared under test profile")
                     .isEmpty();
             assertThat(context.getBeanNamesForType(MagicLinkDevPreviewController.class))
                     .as("dev-preview must not exist under test profile (I8)")
@@ -123,12 +137,18 @@ class MagicLinkProfileGuardIT {
         }
 
         @Test
-        void testProfileRequestEndpointReturns404() throws Exception {
+        void testProfileRequestEndpointReturns404AndDevPreviewIsAbsent() throws Exception {
             MagicLinkRequestTestClient http = new MagicLinkRequestTestClient(port);
             http.bootstrapCsrf();
 
             assertThat(http.postMagicLink("owner@example.test").statusCode()).isEqualTo(404);
             assertThat(repository.count()).isZero();
+
+            HttpResponse<String> preview = http.get("/api/auth/magic-link/dev-preview");
+            assertThat(preview.statusCode())
+                    .as("dev-preview path is absent under test profile")
+                    .isEqualTo(404);
+            assertThat(preview.body()).doesNotContain("#token=");
         }
     }
 
@@ -155,7 +175,7 @@ class MagicLinkProfileGuardIT {
         private LoginTokenRepository repository;
 
         @Test
-        void devAndProdCombinationExcludesMockAndKeepsGateClosed() {
+        void devAndProdCombinationExcludesMockCapabilitiesAndKeepsGateClosed() {
             // The '!prod' in @Profile("dev & !prod") prevents the mock and
             // capabilities from activating even when 'dev' is in the active profiles.
             assertThat(context.getBeanNamesForType(MagicLinkMailer.class))
@@ -163,6 +183,9 @@ class MagicLinkProfileGuardIT {
                     .isEmpty();
             assertThat(context.getBeanNamesForType(MockMagicLinkMailer.class))
                     .as("mock mailer must not exist when prod is active alongside dev (I8)")
+                    .isEmpty();
+            assertThat(context.getBeanNamesForType(MagicLinkCapability.class))
+                    .as("no capability beans when prod overrides dev (!prod exclusion)")
                     .isEmpty();
             assertThat(context.getBeanNamesForType(MagicLinkDevPreviewController.class))
                     .as("dev-preview must not exist when prod is active alongside dev (I8)")
@@ -173,12 +196,75 @@ class MagicLinkProfileGuardIT {
         }
 
         @Test
-        void devAndProdRequestEndpointReturns404() throws Exception {
+        void devAndProdRequestEndpointReturns404AndDevPreviewIsAbsent() throws Exception {
             MagicLinkRequestTestClient http = new MagicLinkRequestTestClient(port);
             http.bootstrapCsrf();
 
             assertThat(http.postMagicLink("owner@example.test").statusCode()).isEqualTo(404);
             assertThat(repository.count()).isZero();
+
+            HttpResponse<String> preview = http.get("/api/auth/magic-link/dev-preview");
+            assertThat(preview.statusCode())
+                    .as("dev-preview path is absent under dev+prod (I8)")
+                    .isEqualTo(404);
+            assertThat(preview.body()).doesNotContain("#token=");
+        }
+    }
+
+    @Nested
+    @SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)
+    @Import(TestcontainersConfiguration.class)
+    @ActiveProfiles({"prod", "test"})
+    class WithProdAndTestProfiles {
+
+        @DynamicPropertySource
+        static void properties(DynamicPropertyRegistry registry) {
+            AuthTestFixtures.registerCredentials(registry);
+            registry.add("app.auth.email", () -> "owner@example.test");
+            registry.add("app.public-url", () -> "https://bank.example.test");
+        }
+
+        @LocalServerPort
+        private int port;
+
+        @Autowired
+        private ApplicationContext context;
+
+        @Autowired
+        private LoginTokenRepository repository;
+
+        @Test
+        void prodAndTestCombinationHasNoMockBeansNoCapabilitiesAndGateIsClosed() {
+            assertThat(context.getBeanNamesForType(MagicLinkMailer.class))
+                    .as("no mailer bean in prod+test combination")
+                    .isEmpty();
+            assertThat(context.getBeanNamesForType(MockMagicLinkMailer.class))
+                    .as("mock mailer must not exist under prod+test (I8)")
+                    .isEmpty();
+            assertThat(context.getBeanNamesForType(MagicLinkCapability.class))
+                    .as("no capability beans in prod+test combination")
+                    .isEmpty();
+            assertThat(context.getBeanNamesForType(MagicLinkDevPreviewController.class))
+                    .as("dev-preview must not exist under prod+test (I8)")
+                    .isEmpty();
+            assertThat(context.getBean(MagicLinkGate.class).isOpen())
+                    .as("gate stays closed under prod+test combination")
+                    .isFalse();
+        }
+
+        @Test
+        void prodAndTestRequestEndpointReturns404AndDevPreviewIsAbsent() throws Exception {
+            MagicLinkRequestTestClient http = new MagicLinkRequestTestClient(port);
+            http.bootstrapCsrf();
+
+            assertThat(http.postMagicLink("owner@example.test").statusCode()).isEqualTo(404);
+            assertThat(repository.count()).isZero();
+
+            HttpResponse<String> preview = http.get("/api/auth/magic-link/dev-preview");
+            assertThat(preview.statusCode())
+                    .as("dev-preview path is absent under prod+test (I8)")
+                    .isEqualTo(404);
+            assertThat(preview.body()).doesNotContain("#token=");
         }
     }
 }

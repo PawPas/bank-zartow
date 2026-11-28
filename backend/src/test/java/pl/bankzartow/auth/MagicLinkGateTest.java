@@ -102,12 +102,30 @@ class MagicLinkGateTest {
     }
 
     @Test
-    void opensWithPublicUrlContainingPath() {
-        // A path in APP_PUBLIC_URL is valid; link becomes publicUrl + /login/confirm#token=...
+    void staysClosedWithPublicUrlHavingNonRootPath() {
+        // Only empty path or "/" is accepted; a sub-path breaks the fixed /login/confirm contract.
         MagicLinkGate gate = new MagicLinkGate(
                 properties("owner@example.test", "https://example.test/app"), ALL_CAPABILITIES);
 
-        assertThat(gate.isOpen()).isTrue();
+        assertThat(gate.isOpen()).isFalse();
+    }
+
+    @Test
+    void staysClosedWithSingleSlashHttpsUrl() {
+        // https:/host has no authority component — uri.getHost() is null.
+        MagicLinkGate gate = new MagicLinkGate(
+                properties("owner@example.test", "https:/bank.example.test"), ALL_CAPABILITIES);
+
+        assertThat(gate.isOpen()).isFalse();
+    }
+
+    @Test
+    void staysClosedWithOpaqueHttpsUrl() {
+        // https:host is an opaque URI — uri.getHost() is null.
+        MagicLinkGate gate = new MagicLinkGate(
+                properties("owner@example.test", "https:bank.example.test"), ALL_CAPABILITIES);
+
+        assertThat(gate.isOpen()).isFalse();
     }
 
     @Test

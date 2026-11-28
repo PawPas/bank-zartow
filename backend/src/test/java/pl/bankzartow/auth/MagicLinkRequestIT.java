@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.http.HttpResponse;
 import java.time.Clock;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -243,20 +244,40 @@ class MagicLinkRequestIT {
         MagicLinkRequestTestClient http = new MagicLinkRequestTestClient(port);
         http.bootstrapCsrf();
 
-        // First request: T1 issued and mailed
+        // T1: issued and mailed
         assertThat(http.postMagicLink(ALLOWED_EMAIL).statusCode()).isEqualTo(202);
         assertThat(mailer.sentMails()).hasSize(1);
         String firstToken = mailer.sentMails().get(0).link().substring(LINK_PREFIX.length());
+        String firstTokenHash = LoginTokenCodec.sha256Hex(firstToken);
 
-        // Second request: T2 issued and immediately invalidated by definite failure
+        // T2: issued then immediately invalidated because the mailer reports DEFINITE_FAILURE (D-ML6)
         mailer.respondWith(SendOutcome.DEFINITE_FAILURE);
         assertThat(http.postMagicLink(ALLOWED_EMAIL).statusCode()).isEqualTo(202);
 
-        assertThat(repository.findByTokenHash(LoginTokenCodec.sha256Hex(firstToken)))
-                .as("the first token is still active after a subsequent definite send failure")
-                .isPresent();
+        // T1 is still fully active: none of its terminal fields are set and it has not expired
+        LoginToken t1 = repository.findByTokenHash(firstTokenHash).orElseThrow();
+        assertThat(t1.getUsedAt())
+                .as("T1 was not consumed")
+                .isNull();
+        assertThat(t1.getInvalidatedAt())
+                .as("D-ML6 targets only the freshly issued T2; T1 must not be touched")
+                .isNull();
+        assertThat(t1.getExpiresAt())
+                .as("T1 has not expired")
+                .isAfter(clock.instant());
+
+        // T2 was freshly issued and immediately invalidated; its row exists but is not active
+        List<LoginToken> allRows = repository.findAll();
+        LoginToken t2 = allRows.stream()
+                .filter(t -> !firstTokenHash.equals(t.getTokenHash()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("T2 row not found in database"));
+        assertThat(t2.getInvalidatedAt())
+                .as("T2 was invalidated after the definite send failure (D-ML6)")
+                .isNotNull();
+
         assertThat(repository.countActive(clock.instant()))
-                .as("only the first token remains; the second was invalidated (D-ML6)")
+                .as("exactly one token (T1) remains active")
                 .isEqualTo(1);
     }
 
