@@ -92,4 +92,79 @@ class MagicLinkGateTest {
 
         assertThat(gate.isOpen()).isTrue();
     }
+
+    @Test
+    void opensWithHttpPublicUrl() {
+        MagicLinkGate gate = new MagicLinkGate(
+                properties("owner@example.test", "http://localhost:8080"), ALL_CAPABILITIES);
+
+        assertThat(gate.isOpen()).isTrue();
+    }
+
+    @Test
+    void staysClosedWithPublicUrlHavingNonRootPath() {
+        // Only empty path or "/" is accepted; a sub-path breaks the fixed /login/confirm contract.
+        MagicLinkGate gate = new MagicLinkGate(
+                properties("owner@example.test", "https://example.test/app"), ALL_CAPABILITIES);
+
+        assertThat(gate.isOpen()).isFalse();
+    }
+
+    @Test
+    void staysClosedWithSingleSlashHttpsUrl() {
+        // https:/host has no authority component — uri.getHost() is null.
+        MagicLinkGate gate = new MagicLinkGate(
+                properties("owner@example.test", "https:/bank.example.test"), ALL_CAPABILITIES);
+
+        assertThat(gate.isOpen()).isFalse();
+    }
+
+    @Test
+    void staysClosedWithOpaqueHttpsUrl() {
+        // https:host is an opaque URI — uri.getHost() is null.
+        MagicLinkGate gate = new MagicLinkGate(
+                properties("owner@example.test", "https:bank.example.test"), ALL_CAPABILITIES);
+
+        assertThat(gate.isOpen()).isFalse();
+    }
+
+    @Test
+    void staysClosedWithPublicUrlContainingQueryString() {
+        MagicLinkGate gate = new MagicLinkGate(
+                properties("owner@example.test", "https://example.test?x=1"), ALL_CAPABILITIES);
+
+        assertThat(gate.isOpen()).isFalse();
+    }
+
+    @Test
+    void staysClosedWithPublicUrlContainingFragment() {
+        MagicLinkGate gate = new MagicLinkGate(
+                properties("owner@example.test", "https://example.test#frag"), ALL_CAPABILITIES);
+
+        assertThat(gate.isOpen()).isFalse();
+    }
+
+    @Test
+    void staysClosedWithPublicUrlContainingUserInfo() {
+        MagicLinkGate gate = new MagicLinkGate(
+                properties("owner@example.test", "https://user:pass@example.test"), ALL_CAPABILITIES);
+
+        assertThat(gate.isOpen()).isFalse();
+    }
+
+    @Test
+    void staysClosedWithRelativePublicUrl() {
+        MagicLinkGate gate = new MagicLinkGate(
+                properties("owner@example.test", "/relative/path"), ALL_CAPABILITIES);
+
+        assertThat(gate.isOpen()).isFalse();
+    }
+
+    @Test
+    void staysClosedWithNonHttpPublicUrlScheme() {
+        MagicLinkGate gate = new MagicLinkGate(
+                properties("owner@example.test", "ftp://example.test"), ALL_CAPABILITIES);
+
+        assertThat(gate.isOpen()).isFalse();
+    }
 }

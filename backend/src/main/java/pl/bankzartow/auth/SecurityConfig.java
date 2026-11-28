@@ -59,6 +59,14 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
                         .requestMatchers("/api/auth/session").permitAll()
+                        // Magic-link request (T-021): public like login, but still
+                        // CSRF-protected; whether it is active is decided solely by
+                        // MagicLinkGate (404 when closed). The confirm endpoint
+                        // (T-022) is intentionally NOT opened here.
+                        .requestMatchers(HttpMethod.POST, "/api/auth/magic-link").permitAll()
+                        // Dev-only link preview (T-021): the handler exists solely in
+                        // the dev profile; everywhere else this public path is a 404.
+                        .requestMatchers(HttpMethod.GET, "/api/auth/magic-link/dev-preview").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         // Static resources and the single-page-app shell stay public so
                         // the login screen is reachable without a session.

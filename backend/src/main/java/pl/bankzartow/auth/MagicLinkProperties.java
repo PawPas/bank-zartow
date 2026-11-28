@@ -1,5 +1,7 @@
 package pl.bankzartow.auth;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Optional;
@@ -52,6 +54,35 @@ public record MagicLinkProperties(
                 presentOrEmpty(publicUrl),
                 Duration.ofMinutes(ttlMinutes == null ? DEFAULT_TTL_MINUTES : ttlMinutes),
                 maxActiveTokens == null ? DEFAULT_MAX_ACTIVE_TOKENS : maxActiveTokens);
+    }
+
+    /**
+     * Returns {@code true} when {@code url} is an absolute, hierarchical HTTP or
+     * HTTPS URL with a non-empty host, no path beyond the root ({@code /}), no
+     * query string, no fragment, and no userinfo. The confirm link is then built
+     * as {@code <url>/login/confirm#token=...} at a fixed, predictable path.
+     *
+     * <p>Rejects opaque URIs (e.g. {@code https:host}), single-slash forms (e.g.
+     * {@code https:/host}), sub-paths (e.g. {@code https://host/app}), and
+     * non-http(s) schemes; any such value keeps {@link MagicLinkGate} closed
+     * (fail-closed).
+     */
+    static boolean isValidPublicUrl(String url) {
+        if (url == null || url.isBlank()) return false;
+        try {
+            URI uri = new URI(url.trim());
+            String host = uri.getHost();
+            String path = uri.getPath();
+            return uri.isAbsolute()
+                    && ("http".equals(uri.getScheme()) || "https".equals(uri.getScheme()))
+                    && host != null && !host.isEmpty()
+                    && uri.getQuery() == null
+                    && uri.getFragment() == null
+                    && uri.getUserInfo() == null
+                    && (path == null || path.isEmpty() || "/".equals(path));
+        } catch (URISyntaxException e) {
+            return false;
+        }
     }
 
     private static Optional<String> presentOrEmpty(String raw) {
